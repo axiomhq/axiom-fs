@@ -5,28 +5,29 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"net"
 	"os"
 	"os/signal"
 	"syscall"
 
 	"github.com/peterbourgon/ff/v3"
 	"github.com/peterbourgon/ff/v3/ffcli"
-
-	"github.com/hanwen/go-fuse/v2/fs"
-	"github.com/hanwen/go-fuse/v2/fuse"
+	nfs "github.com/willscott/go-nfs"
+	nfshelper "github.com/willscott/go-nfs/helpers"
 
 	"github.com/axiomhq/axiom-fs/internal/axiomclient"
 	"github.com/axiomhq/axiom-fs/internal/cache"
 	"github.com/axiomhq/axiom-fs/internal/config"
-	axiomfs "github.com/axiomhq/axiom-fs/internal/fs"
+	"github.com/axiomhq/axiom-fs/internal/nfsfs"
 	"github.com/axiomhq/axiom-fs/internal/query"
+	"github.com/axiomhq/axiom-fs/internal/vfs"
 )
 
 func main() {
 	cfg := config.Default()
 	fsFlagSet := flag.NewFlagSet("axiom-fs", flag.ExitOnError)
 
-	fsFlagSet.StringVar(&cfg.MountPoint, "mount", cfg.MountPoint, "mount point for the filesystem")
+	fsFlagSet.StringVar(&cfg.ListenAddr, "listen", cfg.ListenAddr, "NFS server listen address")
 	fsFlagSet.StringVar(&cfg.DefaultRange, "default-range", cfg.DefaultRange, "default range for queries (ago duration)")
 	fsFlagSet.IntVar(&cfg.DefaultLimit, "default-limit", cfg.DefaultLimit, "default row limit when not specified")
 	fsFlagSet.IntVar(&cfg.MaxLimit, "max-limit", cfg.MaxLimit, "maximum row limit allowed")
@@ -43,9 +44,6 @@ func main() {
 	fsFlagSet.StringVar(&cfg.AxiomToken, "axiom-token", "", "Axiom token (overrides env)")
 	fsFlagSet.StringVar(&cfg.AxiomOrgID, "axiom-org", "", "Axiom org ID (overrides env)")
 
-	var debug bool
-	fsFlagSet.BoolVar(&debug, "debug", false, "enable FUSE debug logging")
-
 	rootCmd := &ffcli.Command{
 		Name:       "axiom-fs",
 		ShortUsage: "axiom-fs [flags]",
@@ -54,7 +52,7 @@ func main() {
 			ff.WithEnvVarPrefix("AXIOM_FS"),
 		},
 		Exec: func(ctx context.Context, args []string) error {
-			return run(ctx, cfg, debug)
+			return run(ctx, cfg)
 		},
 	}
 
@@ -67,7 +65,7 @@ func main() {
 	}
 }
 
-func run(ctx context.Context, cfg config.Config, debug bool) error {
+func run(ctx context.Context, cfg config.Config) error {
 	client, err := axiomclient.NewWithEnvOverrides(cfg.AxiomURL, cfg.AxiomToken, cfg.AxiomOrgID)
 	if err != nil {
 		return err
@@ -75,18 +73,27 @@ func run(ctx context.Context, cfg config.Config, debug bool) error {
 
 	c := cache.New(cfg.CacheTTL, cfg.MaxCacheEntries, cfg.MaxCacheBytes, cfg.CacheDir)
 	exec := query.NewExecutor(client, c, cfg.DefaultRange, cfg.DefaultLimit, cfg.MaxCacheBytes, cfg.MaxInMemoryBytes, cfg.TempDir)
-	fsys := axiomfs.New(cfg, client, exec)
 
-	server, err := fs.Mount(cfg.MountPoint, fsys.Root(), &fs.Options{
-		MountOptions: fuse.MountOptions{
-			Name:  "axiom",
-			Debug: debug,
-		},
-	})
+	root := vfs.NewRoot(cfg, client, exec)
+	billyFS := nfsfs.New(root)
+
+	handler := nfshelper.NewNullAuthHandler(billyFS)
+	cacheHandler := nfshelper.NewCachingHandler(handler, 1024)
+
+	listener, err := net.Listen("tcp", cfg.ListenAddr)
 	if err != nil {
 		return err
 	}
-	defer server.Unmount()
+	defer listener.Close()
+
+	fmt.Printf("Axiom NFS server listening on %s\n", cfg.ListenAddr)
+	fmt.Println()
+	fmt.Println("Mount on macOS:")
+	fmt.Printf("  sudo mount -t nfs -o vers=3,tcp,port=2049,mountport=2049 127.0.0.1:/ /mnt/axiom\n")
+	fmt.Println()
+	fmt.Println("Mount on Linux:")
+	fmt.Printf("  sudo mount -t nfs -o vers=3,tcp,port=2049,mountport=2049 127.0.0.1:/ /mnt/axiom\n")
+	fmt.Println()
 
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
@@ -95,9 +102,9 @@ func run(ctx context.Context, cfg config.Config, debug bool) error {
 		case <-ctx.Done():
 		case <-sigs:
 		}
-		_ = server.Unmount()
+		fmt.Println("\nShutting down...")
+		_ = listener.Close()
 	}()
 
-	server.Wait()
-	return nil
+	return nfs.Serve(listener, cacheHandler)
 }

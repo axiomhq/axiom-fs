@@ -1,6 +1,6 @@
 # axiom-fs
 
-Mount Axiom datasets as a filesystem. Deterministic paths compile to APL. No LLMs, no magic, just fast, inspectable queries.
+Mount Axiom datasets as a filesystem via NFS. Deterministic paths compile to APL. No LLMs, no magic, just fast, inspectable queries.
 
 ## Why it rules
 - Files are queries: read a file, get results.
@@ -8,21 +8,14 @@ Mount Axiom datasets as a filesystem. Deterministic paths compile to APL. No LLM
 - Safe defaults: time range and limit are enforced unless explicitly overridden.
 - Agent friendly: presets and self-describing layout.
 - Raw APL escape hatch: write APL, read results.
+- **No kernel extensions**: Uses NFS, works on macOS without reboots or reduced security.
 
 ## Install
 
-### macOS (macFUSE)
-1) Install macFUSE:
-   - `brew install --cask macfuse`
-2) Enable kernel extensions:
-   - Boot into Recovery, open Startup Security Utility.
-   - Choose "Reduced Security" and "Allow user management of kernel extensions".
-   - Reboot.
+No special installation required. The NFS server is pure Go userspace.
 
-### Linux
-Install FUSE 3:
 ```
-sudo apt-get install fuse3
+go install github.com/axiomhq/axiom-fs/cmd/axiom-fs@latest
 ```
 
 ## Quickstart
@@ -33,9 +26,21 @@ export AXIOM_TOKEN=...
 export AXIOM_ORG_ID=... # only for personal tokens
 ```
 
-Mount:
+Start the NFS server:
 ```
-go run ./cmd/axiom-fs --mount /mnt/axiom
+axiom-fs --listen 127.0.0.1:2049
+```
+
+Mount on macOS:
+```
+sudo mkdir -p /mnt/axiom
+sudo mount -t nfs -o vers=3,tcp,port=2049,mountport=2049 127.0.0.1:/ /mnt/axiom
+```
+
+Mount on Linux:
+```
+sudo mkdir -p /mnt/axiom
+sudo mount -t nfs -o vers=3,tcp,port=2049,mountport=2049 127.0.0.1:/ /mnt/axiom
 ```
 
 Peek:
@@ -43,6 +48,11 @@ Peek:
 ls /mnt/axiom
 ls /mnt/axiom/datasets
 ls /mnt/axiom/<dataset>/presets
+```
+
+Unmount:
+```
+sudo umount /mnt/axiom
 ```
 
 ## Mount layout
@@ -92,7 +102,7 @@ Encoding rules:
 
 Example:
 ```
-/mnt/axiom/logs/q/range/ago/1h/where/status>=500/summarize/count()/by/service/order/count_:desc/limit/50/result.csv
+cat /mnt/axiom/logs/q/range/ago/1h/where/status>=500/summarize/count()/by/service/order/count_:desc/limit/50/result.csv
 ```
 
 ## Presets
@@ -134,7 +144,7 @@ Large result sets spill to disk instead of eating RAM.
 Flags are also available as env vars with `AXIOM_FS_` prefix.
 
 ```
---mount                 mount point
+--listen                NFS server listen address (default: 127.0.0.1:2049)
 --default-range         default range for queries (ago duration)
 --default-limit         default row limit
 --max-limit             max allowed limit
@@ -154,8 +164,9 @@ Flags are also available as env vars with `AXIOM_FS_` prefix.
 
 ## Troubleshooting
 
-- `no FUSE mount utility found`: macFUSE or fuse3 is not installed or not enabled.
-- On macOS: you must allow kernel extensions in Recovery and reboot.
+- **Port 2049 in use**: Choose a different port with `--listen 127.0.0.1:12049` and update mount command accordingly.
+- **Permission denied on mount**: Use `sudo` for the mount command.
+- **Stale file handle**: Unmount and remount.
 - If reads are empty: check `result.error` for details.
 
 ## Development
@@ -163,4 +174,9 @@ Flags are also available as env vars with `AXIOM_FS_` prefix.
 Run tests:
 ```
 go test ./...
+```
+
+Build:
+```
+go build ./cmd/axiom-fs
 ```

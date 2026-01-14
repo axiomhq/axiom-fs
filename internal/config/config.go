@@ -7,7 +7,7 @@ import (
 )
 
 type Config struct {
-	MountPoint       string
+	ListenAddr       string
 	DefaultRange     string
 	DefaultLimit     int
 	MaxLimit         int
@@ -44,7 +44,7 @@ func Default() Config {
 		cacheDir = "axiom-fs-cache"
 	}
 	return Config{
-		MountPoint:       "/mnt/axiom",
+		ListenAddr:       "127.0.0.1:2049",
 		DefaultRange:     "1h",
 		DefaultLimit:     10000,
 		MaxLimit:         100000,
