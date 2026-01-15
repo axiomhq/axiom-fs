@@ -42,10 +42,8 @@ class NFSProcessManager: ObservableObject {
             FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".local/bin/axiom-fs").path
         ]
         
-        for path in searchPaths {
-            if FileManager.default.isExecutableFile(atPath: path) {
-                return path
-            }
+        for path in searchPaths where FileManager.default.isExecutableFile(atPath: path) {
+            return path
         }
         
         return nil

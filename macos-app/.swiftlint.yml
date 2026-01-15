@@ -1,0 +1,22 @@
+disabled_rules:
+  - trailing_comma
+  - identifier_name
+  - type_body_length
+  - file_length
+  - function_body_length
+  - cyclomatic_complexity
+  - line_length
+  - todo
+  - trailing_whitespace
+  - non_optional_string_data_conversion
+  - force_unwrapping
+  - static_over_final_class
+  - duplicate_imports
+  - trailing_newline
+  - void_return
+
+excluded:
+  - .build
+  - build
+  - DerivedData
+  - .swiftpm

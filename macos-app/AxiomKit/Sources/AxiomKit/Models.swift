@@ -46,8 +46,8 @@ public struct QueryColumn: Codable, Sendable {
 }
 
 public enum QueryFormat: String, Sendable {
-    case tabular = "tabular"
-    case legacy = "legacy"
+    case tabular
+    case legacy
 }
 
 public enum AxiomError: Error, Sendable {
