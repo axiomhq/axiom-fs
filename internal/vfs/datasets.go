@@ -5,9 +5,11 @@ import (
 	"context"
 	"encoding/csv"
 	"encoding/json"
+	"log/slog"
 	"os"
 	"sort"
 	"strconv"
+	"time"
 
 	"github.com/go-git/go-billy/v5"
 
@@ -62,6 +64,14 @@ func (d *DatasetDir) Stat(ctx context.Context) (os.FileInfo, error) {
 }
 
 func (d *DatasetDir) ReadDir(ctx context.Context) ([]os.FileInfo, error) {
+	// Prefetch fields in background so opening fields/ is fast
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if _, err := d.root.fields().List(ctx, d.root.Client(), d.dataset.Name); err != nil {
+			slog.Warn("failed to prefetch fields", "dataset", d.dataset.Name, "error", err)
+		}
+	}()
 	return []os.FileInfo{
 		FileInfo("schema.json", 0),
 		FileInfo("schema.csv", 0),
@@ -272,7 +282,8 @@ func (f *FieldQueryFile) Stat(ctx context.Context) (os.FileInfo, error) {
 func (f *FieldQueryFile) Open(ctx context.Context, flags int) (billy.File, error) {
 	data, err := f.buildFieldQuery(ctx)
 	if err != nil {
-		return nil, err
+		// Return error as file content so users can see why the query failed
+		return newBytesFile([]byte("error: " + err.Error() + "\n")), nil
 	}
 	return newBytesFile(data), nil
 }

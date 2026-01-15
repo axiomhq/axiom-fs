@@ -19,6 +19,10 @@ type mockClient struct {
 	queryFn  func(apl string) (*axiomclient.QueryResult, error)
 }
 
+func (m *mockClient) CurrentUser(ctx context.Context) (*axiomclient.User, error) {
+	return &axiomclient.User{ID: "test", Name: "Test User", Email: "test@example.com"}, nil
+}
+
 func (m *mockClient) ListDatasets(ctx context.Context) ([]axiomclient.Dataset, error) {
 	return m.datasets, nil
 }

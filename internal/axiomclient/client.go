@@ -66,8 +66,16 @@ type QueryStatus struct {
 	RowsMatched    int64 `json:"rowsMatched"`
 }
 
+// User represents the current authenticated user.
+type User struct {
+	ID    string `json:"id"`
+	Name  string `json:"name"`
+	Email string `json:"email"`
+}
+
 // API defines the interface for Axiom API operations.
 type API interface {
+	CurrentUser(ctx context.Context) (*User, error)
 	ListDatasets(ctx context.Context) ([]Dataset, error)
 	ListFields(ctx context.Context, datasetID string) ([]Field, error)
 	QueryAPL(ctx context.Context, apl string) (*QueryResult, error)
@@ -197,6 +205,23 @@ func (c *Client) checkResponse(resp *http.Response) error {
 	return fmt.Errorf("axiom API error: status %d", resp.StatusCode)
 }
 
+// CurrentUser returns the authenticated user.
+func (c *Client) CurrentUser(ctx context.Context) (*User, error) {
+	resp, err := c.doRequest(ctx, http.MethodGet, "/v2/user", nil)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if err := c.checkResponse(resp); err != nil {
+		return nil, err
+	}
+	var user User
+	if err := json.NewDecoder(resp.Body).Decode(&user); err != nil {
+		return nil, err
+	}
+	return &user, nil
+}
+
 // ListDatasets returns all datasets.
 func (c *Client) ListDatasets(ctx context.Context) ([]Dataset, error) {
 	resp, err := c.doRequest(ctx, http.MethodGet, "/v2/datasets", nil)
@@ -241,7 +266,7 @@ func (c *Client) QueryAPL(ctx context.Context, apl string) (*QueryResult, error)
 	if err != nil {
 		return nil, err
 	}
-	resp, err := c.doRequest(ctx, http.MethodPost, "/v2/datasets/_apl?format=tabular", bytes.NewReader(reqBody))
+	resp, err := c.doRequest(ctx, http.MethodPost, "/v1/datasets/_apl?format=tabular", bytes.NewReader(reqBody))
 	if err != nil {
 		return nil, err
 	}

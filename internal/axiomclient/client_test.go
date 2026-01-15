@@ -134,8 +134,8 @@ func TestQueryAPL(t *testing.T) {
 		if r.Method != http.MethodPost {
 			t.Errorf("expected POST, got %s", r.Method)
 		}
-		if r.URL.Path != "/v2/datasets/_apl" {
-			t.Errorf("expected /v2/datasets/_apl, got %s", r.URL.Path)
+		if r.URL.Path != "/v1/datasets/_apl" {
+			t.Errorf("expected /v1/datasets/_apl, got %s", r.URL.Path)
 		}
 		if !strings.Contains(r.URL.RawQuery, "format=tabular") {
 			t.Errorf("expected format=tabular in query, got %s", r.URL.RawQuery)

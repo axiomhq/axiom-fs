@@ -292,6 +292,43 @@ func TestIntegration_FileSizeAccuracy(t *testing.T) {
 	}
 }
 
+func TestIntegration_FieldHistogramError(t *testing.T) {
+	skipIfNotConfigured(t)
+	fs := newTestFS(t)
+
+	// Find a string field to test histogram on (which should fail)
+	// histogram() only works on numeric fields
+	stringField := os.Getenv("AXIOM_FS_TEST_STRING_FIELD")
+	if stringField == "" {
+		stringField = "data.message" // common field name
+	}
+
+	histogramPath := "/" + testDataset + "/fields/" + stringField + "/histogram.csv"
+
+	f, err := fs.Open(histogramPath)
+	if err != nil {
+		// This is the expected behavior - Open should return an error
+		t.Logf("Open correctly returned error: %v", err)
+		return
+	}
+	defer f.Close()
+
+	// If Open succeeded, check if we got error content or empty file
+	data, err := io.ReadAll(f)
+	if err != nil {
+		t.Fatalf("ReadAll failed: %v", err)
+	}
+
+	// The file should NOT be empty - it should either:
+	// 1. Not open at all (error from Open), or
+	// 2. Contain an error message
+	if len(data) == 0 {
+		t.Fatal("histogram.csv is empty but should contain an error message for string fields")
+	}
+
+	t.Logf("histogram.csv content: %s", string(data))
+}
+
 func TestIntegration_WriteAndReadAPL(t *testing.T) {
 	skipIfNotConfigured(t)
 	fs := newTestFS(t)

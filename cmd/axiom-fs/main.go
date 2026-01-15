@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/peterbourgon/ff/v3"
 	"github.com/peterbourgon/ff/v3/ffcli"
@@ -72,15 +73,25 @@ func run(ctx context.Context, cfg config.Config) error {
 		return err
 	}
 
+	// Preflight check: verify token is valid
+	fmt.Println("Verifying Axiom credentials...")
+	user, err := client.CurrentUser(ctx)
+	if err != nil {
+		return fmt.Errorf("credential check failed: %w\n\nEnsure AXIOM_TOKEN is valid, or check ~/.axiom.toml", err)
+	}
+	fmt.Printf("Connected as %s (%s)\n", user.Name, user.Email)
+
 	c := cache.New(cfg.CacheTTL, cfg.MaxCacheEntries, cfg.MaxCacheBytes, cfg.CacheDir)
 	exec := query.NewExecutor(client, c, cfg.DefaultRange, cfg.DefaultLimit, cfg.MaxCacheBytes, cfg.MaxInMemoryBytes, cfg.TempDir)
 
 	root := vfs.NewRoot(cfg, client, exec)
 	billyFS := nfsfs.New(root)
 
-	// Prefetch datasets to warm cache before Finder opens
+	// Prefetch datasets in background to warm cache before Finder opens
 	go func() {
-		if _, err := root.ReadDir(context.Background()); err != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if _, err := root.ReadDir(ctx); err != nil {
 			fmt.Fprintf(os.Stderr, "prefetch warning: %v\n", err)
 		}
 	}()
@@ -94,13 +105,17 @@ func run(ctx context.Context, cfg config.Config) error {
 	}
 	defer listener.Close()
 
+	host, port, _ := net.SplitHostPort(cfg.ListenAddr)
+	if host == "" {
+		host = "127.0.0.1"
+	}
 	fmt.Printf("Axiom NFS server listening on %s\n", cfg.ListenAddr)
 	fmt.Println()
-	fmt.Println("Mount on macOS:")
-	fmt.Printf("  sudo mount -t nfs -o vers=3,tcp,port=2049,mountport=2049 127.0.0.1:/ /mnt/axiom\n")
+	fmt.Println("Mount on macOS (userspace):")
+	fmt.Printf("  mkdir -p ~/Axiom && mount_nfs -o vers=3,tcp,port=%s,mountport=%s,noresvport,nolocks,locallocks %s:/ ~/Axiom\n", port, port, host)
 	fmt.Println()
 	fmt.Println("Mount on Linux:")
-	fmt.Printf("  sudo mount -t nfs -o vers=3,tcp,port=2049,mountport=2049 127.0.0.1:/ /mnt/axiom\n")
+	fmt.Printf("  sudo mount -t nfs -o vers=3,tcp,port=%s,mountport=%s %s:/ /mnt/axiom\n", port, port, host)
 	fmt.Println()
 
 	sigs := make(chan os.Signal, 1)
