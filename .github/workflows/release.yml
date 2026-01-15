@@ -1,0 +1,136 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  go-binaries:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - goos: darwin
+            goarch: amd64
+            suffix: darwin-amd64
+          - goos: darwin
+            goarch: arm64
+            suffix: darwin-arm64
+          - goos: linux
+            goarch: amd64
+            suffix: linux-amd64
+          - goos: linux
+            goarch: arm64
+            suffix: linux-arm64
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: 0
+        run: |
+          go build -ldflags="-s -w" -o axiom-fs-${{ matrix.suffix }} ./cmd/axiom-fs
+          tar -czvf axiom-fs-${{ matrix.suffix }}.tar.gz axiom-fs-${{ matrix.suffix }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: axiom-fs-${{ matrix.suffix }}
+          path: axiom-fs-${{ matrix.suffix }}.tar.gz
+
+  macos-app:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build universal Go binary for app bundle
+        run: |
+          CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w" -o axiom-fs-arm64 ./cmd/axiom-fs
+          CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w" -o axiom-fs-amd64 ./cmd/axiom-fs
+          lipo -create -output axiom-fs axiom-fs-arm64 axiom-fs-amd64
+
+      - name: Build macOS app
+        run: |
+          xcodebuild -project AxiomFS.xcodeproj \
+            -scheme AxiomFS \
+            -configuration Release \
+            -derivedDataPath build \
+            -archivePath build/AxiomFS.xcarchive \
+            archive \
+            CODE_SIGN_IDENTITY="-" \
+            CODE_SIGNING_ALLOWED=NO
+        working-directory: macos-app/AxiomFS
+
+      - name: Export app
+        run: |
+          mkdir -p export
+          cp -R build/AxiomFS.xcarchive/Products/Applications/AxiomFS.app export/
+          # Bundle the Go binary inside the app
+          mkdir -p export/AxiomFS.app/Contents/MacOS
+          cp ../../axiom-fs export/AxiomFS.app/Contents/MacOS/
+        working-directory: macos-app/AxiomFS
+
+      - name: Create DMG
+        run: |
+          # Install create-dmg
+          brew install create-dmg
+          
+          # Create DMG
+          create-dmg \
+            --volname "Axiom FS" \
+            --window-pos 200 120 \
+            --window-size 600 400 \
+            --icon-size 100 \
+            --icon "AxiomFS.app" 150 190 \
+            --app-drop-link 450 185 \
+            --hide-extension "AxiomFS.app" \
+            "AxiomFS.dmg" \
+            "export/"
+        working-directory: macos-app/AxiomFS
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: AxiomFS-macOS
+          path: macos-app/AxiomFS/AxiomFS.dmg
+
+  release:
+    needs: [go-binaries, macos-app]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Prepare release assets
+        run: |
+          mkdir release
+          mv artifacts/axiom-fs-darwin-amd64/axiom-fs-darwin-amd64.tar.gz release/
+          mv artifacts/axiom-fs-darwin-arm64/axiom-fs-darwin-arm64.tar.gz release/
+          mv artifacts/axiom-fs-linux-amd64/axiom-fs-linux-amd64.tar.gz release/
+          mv artifacts/axiom-fs-linux-arm64/axiom-fs-linux-arm64.tar.gz release/
+          mv artifacts/AxiomFS-macOS/AxiomFS.dmg release/AxiomFS-${{ github.ref_name }}.dmg
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/*
+          generate_release_notes: true
+          draft: false
