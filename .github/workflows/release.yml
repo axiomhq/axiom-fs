@@ -9,49 +9,32 @@ permissions:
   contents: write
 
 jobs:
-  go-binaries:
+  goreleaser:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        include:
-          - goos: darwin
-            goarch: amd64
-            suffix: darwin-amd64
-          - goos: darwin
-            goarch: arm64
-            suffix: darwin-arm64
-          - goos: linux
-            goarch: amd64
-            suffix: linux-amd64
-          - goos: linux
-            goarch: arm64
-            suffix: linux-arm64
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
 
-      - name: Build
-        env:
-          GOOS: ${{ matrix.goos }}
-          GOARCH: ${{ matrix.goarch }}
-          CGO_ENABLED: 0
-        run: |
-          go build -ldflags="-s -w" -o axiom-fs-${{ matrix.suffix }} ./cmd/axiom-fs
-          tar -czvf axiom-fs-${{ matrix.suffix }}.tar.gz axiom-fs-${{ matrix.suffix }}
+      - name: Get GoReleaser version from go.mod
+        run: echo "GORELEASER_VERSION=$(go list -m -f '{{.Version}}' github.com/goreleaser/goreleaser/v2)" >> $GITHUB_ENV
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+      - uses: goreleaser/goreleaser-action@v6
         with:
-          name: axiom-fs-${{ matrix.suffix }}
-          path: axiom-fs-${{ matrix.suffix }}.tar.gz
+          version: ${{ env.GORELEASER_VERSION }}
+          args: release
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          HOMEBREW_TOKEN: ${{ secrets.HOMEBREW_TOKEN }}
 
   macos-app:
     runs-on: macos-14
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - uses: actions/setup-go@v5
         with:
@@ -79,17 +62,13 @@ jobs:
         run: |
           mkdir -p export
           cp -R build/AxiomFS.xcarchive/Products/Applications/AxiomFS.app export/
-          # Bundle the Go binary inside the app
           mkdir -p export/AxiomFS.app/Contents/MacOS
           cp ../../axiom-fs export/AxiomFS.app/Contents/MacOS/
         working-directory: macos-app/AxiomFS
 
       - name: Create DMG
         run: |
-          # Install create-dmg
           brew install create-dmg
-          
-          # Create DMG
           create-dmg \
             --volname "Axiom FS" \
             --window-pos 200 120 \
@@ -108,29 +87,17 @@ jobs:
           name: AxiomFS-macOS
           path: macos-app/AxiomFS/AxiomFS.dmg
 
-  release:
-    needs: [go-binaries, macos-app]
+  upload-dmg:
+    needs: [goreleaser, macos-app]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Download all artifacts
+      - name: Download DMG artifact
         uses: actions/download-artifact@v4
         with:
-          path: artifacts
+          name: AxiomFS-macOS
 
-      - name: Prepare release assets
+      - name: Upload DMG to release
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          mkdir release
-          mv artifacts/axiom-fs-darwin-amd64/axiom-fs-darwin-amd64.tar.gz release/
-          mv artifacts/axiom-fs-darwin-arm64/axiom-fs-darwin-arm64.tar.gz release/
-          mv artifacts/axiom-fs-linux-amd64/axiom-fs-linux-amd64.tar.gz release/
-          mv artifacts/axiom-fs-linux-arm64/axiom-fs-linux-arm64.tar.gz release/
-          mv artifacts/AxiomFS-macOS/AxiomFS.dmg release/AxiomFS-${{ github.ref_name }}.dmg
-
-      - name: Create release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: release/*
-          generate_release_notes: true
-          draft: false
+          gh release upload ${{ github.ref_name }} AxiomFS.dmg --repo ${{ github.repository }}
