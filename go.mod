@@ -3,6 +3,7 @@ module github.com/axiomhq/axiom-fs
 go 1.25.3
 
 require (
+	github.com/BurntSushi/toml v1.6.0
 	github.com/axiomhq/axiom-go v0.27.0
 	github.com/go-git/go-billy/v5 v5.7.0
 	github.com/peterbourgon/ff/v3 v3.4.0
@@ -11,7 +12,6 @@ require (
 )
 
 require (
-	github.com/BurntSushi/toml v1.6.0 // indirect
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
