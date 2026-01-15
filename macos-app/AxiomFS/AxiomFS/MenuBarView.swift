@@ -69,18 +69,7 @@ struct MenuBarView: View {
             
             // Footer
             VStack(alignment: .leading, spacing: 0) {
-                SettingsLink {
-                    HStack(spacing: 8) {
-                        Image(systemName: "gear")
-                            .frame(width: 16)
-                        Text("Settings...")
-                        Spacer()
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
+                SettingsMenuButton()
 
                 MenuButton(title: "Quit Axiom FS", icon: "power") {
                     Task {
@@ -103,14 +92,38 @@ struct MenuBarView: View {
     }
 }
 
+struct SettingsMenuButton: View {
+    @State private var isHovered = false
+
+    var body: some View {
+        SettingsLink {
+            HStack(spacing: 8) {
+                Image(systemName: "gear")
+                    .frame(width: 16)
+                Text("Settings...")
+                Spacer()
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(isHovered ? Color.accentColor.opacity(0.15) : Color.clear)
+            .cornerRadius(4)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .focusEffectDisabled()
+        .onHover { isHovered = $0 }
+    }
+}
+
 struct MenuButton: View {
     let title: String
     let icon: String
     var disabled: Bool = false
     let action: () -> Void
-    
+
     @State private var isHovered = false
-    
+
     var body: some View {
         Button(action: action) {
             HStack(spacing: 8) {
@@ -121,12 +134,15 @@ struct MenuButton: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 6)
-            .background(isHovered && !disabled ? Color.accentColor.opacity(0.2) : Color.clear)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(isHovered && !disabled ? Color.accentColor.opacity(0.15) : Color.clear)
+            .cornerRadius(4)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .disabled(disabled)
         .opacity(disabled ? 0.5 : 1)
+        .focusEffectDisabled()
         .onHover { isHovered = $0 }
     }
 }
