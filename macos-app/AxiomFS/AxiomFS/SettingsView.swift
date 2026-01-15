@@ -5,20 +5,20 @@ struct SettingsView: View {
     @EnvironmentObject var appState: AppState
     @State private var token: String = ""
     @State private var launchAtLogin: Bool = false
-    
+
     var body: some View {
         TabView {
             GeneralSettingsView(launchAtLogin: $launchAtLogin)
                 .tabItem {
                     Label("General", systemImage: "gear")
                 }
-            
+
             AccountSettingsView(token: $token)
                 .environmentObject(appState)
                 .tabItem {
                     Label("Account", systemImage: "person.crop.circle")
                 }
-            
+
             NFSSettingsView()
                 .environmentObject(appState)
                 .tabItem {
@@ -34,7 +34,7 @@ struct SettingsView: View {
 
 struct GeneralSettingsView: View {
     @Binding var launchAtLogin: Bool
-    
+
     var body: some View {
         Form {
             Toggle("Launch at Login", isOn: $launchAtLogin)
@@ -57,22 +57,22 @@ struct GeneralSettingsView: View {
 struct AccountSettingsView: View {
     @EnvironmentObject var appState: AppState
     @Binding var token: String
-    
+
     var body: some View {
         Form {
             TextField("Axiom URL", text: $appState.axiomURL)
-            
+
             SecureField("API Token", text: $token)
                 .onSubmit {
                     saveToken()
                 }
-            
+
             TextField("Organization ID (optional)", text: $appState.axiomOrgID)
-            
+
             Text("Token is read from AXIOM_TOKEN environment variable or ~/.axiom.toml")
                 .font(.caption)
                 .foregroundColor(.secondary)
-            
+
             HStack {
                 Spacer()
                 Button("Save") {
@@ -83,7 +83,7 @@ struct AccountSettingsView: View {
         }
         .padding()
     }
-    
+
     private func saveToken() {
         // TODO: Save to Keychain via KeychainManager
         // For now, users should set AXIOM_TOKEN or use ~/.axiom.toml
@@ -92,7 +92,7 @@ struct AccountSettingsView: View {
 
 struct NFSSettingsView: View {
     @EnvironmentObject var appState: AppState
-    
+
     var body: some View {
         Form {
             Section {
@@ -111,7 +111,7 @@ struct NFSSettingsView: View {
                             .foregroundColor(.red)
                     }
                 }
-                
+
                 HStack {
                     Text("Mount Point")
                     Spacer()
@@ -119,7 +119,7 @@ struct NFSSettingsView: View {
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
-                
+
                 HStack {
                     Text("Server Address")
                     Spacer()
@@ -128,17 +128,17 @@ struct NFSSettingsView: View {
                         .foregroundColor(.secondary)
                 }
             }
-            
+
             Section {
                 if !appState.hasBinary {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Install axiom-fs")
                             .font(.headline)
-                        
+
                         Text("The NFS server binary was not found. Install it with:")
                             .font(.caption)
                             .foregroundColor(.secondary)
-                        
+
                         Text("go install github.com/axiomhq/axiom-fs/cmd/axiom-fs@latest")
                             .font(.system(.caption, design: .monospaced))
                             .textSelection(.enabled)
@@ -148,7 +148,7 @@ struct NFSSettingsView: View {
                     }
                 }
             }
-            
+
             if !appState.nfsManager.serverOutput.isEmpty {
                 Section("Server Output") {
                     ScrollView {

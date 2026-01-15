@@ -3,7 +3,7 @@ import SwiftUI
 @main
 struct AxiomFSApp: App {
     @StateObject private var appState = AppState()
-    
+
     var body: some Scene {
         MenuBarExtra {
             MenuBarView()
@@ -13,7 +13,7 @@ struct AxiomFSApp: App {
                 .renderingMode(.template)
         }
         .menuBarExtraStyle(.window)
-        
+
         Settings {
             SettingsView()
                 .environmentObject(appState)

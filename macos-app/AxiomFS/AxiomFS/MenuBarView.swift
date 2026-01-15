@@ -2,7 +2,7 @@ import SwiftUI
 
 struct MenuBarView: View {
     @EnvironmentObject var appState: AppState
-    
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             // Header
@@ -23,21 +23,21 @@ struct MenuBarView: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
-            
+
             Divider()
-            
+
             // Status
             VStack(alignment: .leading, spacing: 4) {
                 Text(appState.statusText)
                     .font(.caption)
                     .foregroundColor(.secondary)
-                
+
                 if case .running(let pid) = appState.nfsManager.state {
                     Text("PID: \(pid)")
                         .font(.caption2)
                         .foregroundColor(.secondary.opacity(0.7))
                 }
-                
+
                 if !appState.hasBinary {
                     Text("⚠️ axiom-fs not found")
                         .font(.caption)
@@ -46,9 +46,9 @@ struct MenuBarView: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
-            
+
             Divider()
-            
+
             // Actions
             VStack(alignment: .leading, spacing: 0) {
                 if appState.isConnected {
@@ -64,9 +64,9 @@ struct MenuBarView: View {
                     }
                 }
             }
-            
+
             Divider()
-            
+
             // Footer
             VStack(alignment: .leading, spacing: 0) {
                 SettingsMenuButton()
@@ -81,7 +81,7 @@ struct MenuBarView: View {
         }
         .frame(width: 220)
     }
-    
+
     private var statusColor: Color {
         switch appState.status {
         case .connected: return .green
