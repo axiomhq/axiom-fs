@@ -1,0 +1,106 @@
+version: 2
+
+project_name: axiom-fs
+
+git:
+  prerelease_suffix: "-"
+
+builds:
+  - <<: &build_defaults
+      binary: axiom-fs
+      main: ./cmd/axiom-fs
+      env:
+        - CGO_ENABLED=0
+      tags:
+        - osusergo
+        - netgo
+        - static_build
+      flags:
+        - -buildvcs=false
+        - -buildmode=pie
+        - -installsuffix=cgo
+        - -trimpath
+      ldflags:
+        - -s -w -extldflags "-fno-PIC -static -Wl -z now -z relro"
+        - -X github.com/axiomhq/pkg/version.release={{ .Version }}
+        - -X github.com/axiomhq/pkg/version.revision={{ .ShortCommit }}
+        - -X github.com/axiomhq/pkg/version.buildDate={{ .CommitDate }}
+        - -X github.com/axiomhq/pkg/version.buildUser=goreleaser
+      mod_timestamp: "{{ .CommitTimestamp }}"
+    id: darwin
+    goos:
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+
+  - <<: *build_defaults
+    id: linux
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+
+archives:
+  - <<: &archive_defaults
+      name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    id: nix
+    ids:
+      - darwin
+      - linux
+    wrap_in_directory: true
+    formats:
+      - tar.gz
+    files:
+      - LICENSE
+      - README.md
+
+  - <<: *archive_defaults
+    id: homebrew
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}_homebrew"
+    ids:
+      - darwin
+    wrap_in_directory: false
+    formats:
+      - tar.gz
+    files:
+      - LICENSE
+      - README.md
+
+checksum:
+  name_template: checksums.txt
+
+snapshot:
+  version_template: "{{ .Tag }}-next"
+
+changelog:
+  use: github-native
+
+release:
+  github:
+    owner: axiomhq
+    name: axiom-fs
+  prerelease: auto
+  name_template: Axiom FS v{{ .Version }}
+
+homebrew_casks:
+  - name: axiom-fs
+    description: Expose Axiom datasets as a filesystem via NFS
+    homepage: https://github.com/axiomhq/axiom-fs
+    ids:
+      - homebrew
+    repository:
+      owner: axiomhq
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TOKEN }}"
+    commit_author:
+      name: axiom-automation
+      email: hello@axiom.co
+    skip_upload: auto
+    hooks:
+      post:
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/{{ .ProjectName }}"]
+          end

@@ -46,3 +46,4 @@ Carthage/Build/
 # Code signing
 *.mobileprovision
 *.provisionprofile
+dist/

@@ -21,12 +21,17 @@ import (
 	"github.com/axiomhq/axiom-fs/internal/nfsfs"
 	"github.com/axiomhq/axiom-fs/internal/query"
 	"github.com/axiomhq/axiom-fs/internal/vfs"
+	"github.com/axiomhq/pkg/version"
 )
 
 func main() {
+	var showVersion bool
+
 	cfg := config.Default()
 	fsFlagSet := flag.NewFlagSet("axiom-fs", flag.ExitOnError)
 
+	fsFlagSet.BoolVar(&showVersion, "version", false, "print version and exit")
+	fsFlagSet.BoolVar(&showVersion, "v", false, "print version and exit")
 	fsFlagSet.StringVar(&cfg.ListenAddr, "listen", cfg.ListenAddr, "NFS server listen address")
 	fsFlagSet.StringVar(&cfg.DefaultRange, "default-range", cfg.DefaultRange, "default range for queries (ago duration)")
 	fsFlagSet.IntVar(&cfg.DefaultLimit, "default-limit", cfg.DefaultLimit, "default row limit when not specified")
@@ -52,6 +57,10 @@ func main() {
 			ff.WithEnvVarPrefix("AXIOM_FS"),
 		},
 		Exec: func(ctx context.Context, args []string) error {
+			if showVersion {
+				fmt.Println(version.Print("axiom-fs"))
+				return nil
+			}
 			return run(ctx, cfg)
 		},
 	}

@@ -15,11 +15,15 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+          cache: false
+
+      - name: Get golangci-lint version from go.mod
+        run: echo "GOLANGCI_LINT_VERSION=$(go list -m -f '{{.Version}}' github.com/golangci/golangci-lint/v2)" >> $GITHUB_ENV
 
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v8
         with:
-          version: v2.4.0
+          version: ${{ env.GOLANGCI_LINT_VERSION }}
 
   go-test:
     runs-on: ubuntu-latest
