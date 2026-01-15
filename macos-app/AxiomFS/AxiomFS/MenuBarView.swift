@@ -69,13 +69,19 @@ struct MenuBarView: View {
             
             // Footer
             VStack(alignment: .leading, spacing: 0) {
-                MenuButton(title: "Settings...", icon: "gear") {
-                    if #available(macOS 14.0, *) {
-                        NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
-                    } else {
-                        NSApp.sendAction(Selector(("showPreferencesWindow:")), to: nil, from: nil)
+                SettingsLink {
+                    HStack(spacing: 8) {
+                        Image(systemName: "gear")
+                            .frame(width: 16)
+                        Text("Settings...")
+                        Spacer()
                     }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
+
                 MenuButton(title: "Quit Axiom FS", icon: "power") {
                     Task {
                         await appState.disconnect()
