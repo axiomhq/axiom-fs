@@ -7,9 +7,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/axiomhq/axiom-go/axiom"
 	"github.com/go-git/go-billy/v5"
 
+	"github.com/axiomhq/axiom-fs/internal/axiomclient"
 	"github.com/axiomhq/axiom-fs/internal/presets"
 	"github.com/axiomhq/axiom-fs/internal/query"
 )
@@ -42,7 +42,7 @@ func (p *PresetsDir) Lookup(ctx context.Context, name string) (Node, error) {
 
 type DatasetPresetsDir struct {
 	root    *Root
-	dataset *axiom.Dataset
+	dataset *axiomclient.Dataset
 }
 
 func (p *DatasetPresetsDir) Stat(ctx context.Context) (os.FileInfo, error) {
@@ -72,7 +72,7 @@ func (p *DatasetPresetsDir) Lookup(ctx context.Context, name string) (Node, erro
 
 type PresetResultFile struct {
 	root    *Root
-	dataset *axiom.Dataset
+	dataset *axiomclient.Dataset
 	preset  presets.Preset
 }
 

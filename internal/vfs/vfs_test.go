@@ -8,34 +8,43 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/axiomhq/axiom-go/axiom"
-	axiomquery "github.com/axiomhq/axiom-go/axiom/query"
-
+	"github.com/axiomhq/axiom-fs/internal/axiomclient"
 	"github.com/axiomhq/axiom-fs/internal/config"
 	"github.com/axiomhq/axiom-fs/internal/query"
 )
 
 type mockClient struct {
-	datasets []*axiom.Dataset
-	queryFn  func(apl string) (*axiomquery.Result, error)
+	datasets []axiomclient.Dataset
+	fields   map[string][]axiomclient.Field
+	queryFn  func(apl string) (*axiomclient.QueryResult, error)
 }
 
-func (m *mockClient) ListDatasets(ctx context.Context) ([]*axiom.Dataset, error) {
+func (m *mockClient) ListDatasets(ctx context.Context) ([]axiomclient.Dataset, error) {
 	return m.datasets, nil
 }
 
-func (m *mockClient) QueryAPL(ctx context.Context, apl string) (*axiomquery.Result, error) {
+func (m *mockClient) ListFields(ctx context.Context, datasetID string) ([]axiomclient.Field, error) {
+	if m.fields != nil {
+		return m.fields[datasetID], nil
+	}
+	return []axiomclient.Field{
+		{Name: "_time", Type: "datetime"},
+		{Name: "message", Type: "string"},
+	}, nil
+}
+
+func (m *mockClient) QueryAPL(ctx context.Context, apl string) (*axiomclient.QueryResult, error) {
 	if m.queryFn != nil {
 		return m.queryFn(apl)
 	}
-	return &axiomquery.Result{}, nil
+	return &axiomclient.QueryResult{}, nil
 }
 
 type mockExecutor struct {
 	aplLog    []string
 	formatLog []string
 	data      []byte
-	result    *axiomquery.Result
+	result    *axiomclient.QueryResult
 	err       error
 }
 
@@ -51,12 +60,12 @@ func (m *mockExecutor) ExecuteAPLResult(ctx context.Context, apl, format string,
 	return query.ResultData{Bytes: m.data, Size: int64(len(m.data))}, m.err
 }
 
-func (m *mockExecutor) QueryAPL(ctx context.Context, apl string, opts query.ExecOptions) (*axiomquery.Result, error) {
+func (m *mockExecutor) QueryAPL(ctx context.Context, apl string, opts query.ExecOptions) (*axiomclient.QueryResult, error) {
 	m.aplLog = append(m.aplLog, apl)
 	if m.result != nil {
 		return m.result, m.err
 	}
-	return &axiomquery.Result{}, m.err
+	return &axiomclient.QueryResult{}, m.err
 }
 
 func (m *mockExecutor) lastAPL() string {
@@ -73,8 +82,10 @@ func (m *mockExecutor) lastFormat() string {
 	return m.formatLog[len(m.formatLog)-1]
 }
 
-func newTestRoot(datasets []*axiom.Dataset, data []byte) (*Root, *mockExecutor) {
+func newTestRoot(t *testing.T, datasets []axiomclient.Dataset, data []byte) (*Root, *mockExecutor) {
+	t.Helper()
 	cfg := config.Default()
+	cfg.CacheDir = t.TempDir()
 	client := &mockClient{datasets: datasets}
 	exec := &mockExecutor{data: data}
 	return NewRoot(cfg, client, exec), exec
@@ -109,7 +120,7 @@ func dirNames(t *testing.T, dir Dir) []string {
 }
 
 func TestRootStructure(t *testing.T) {
-	root, _ := newTestRoot([]*axiom.Dataset{{Name: "logs"}, {Name: "metrics"}}, nil)
+	root, _ := newTestRoot(t, []axiomclient.Dataset{{Name: "logs"}, {Name: "metrics"}}, nil)
 	ctx := context.Background()
 
 	t.Run("Stat", func(t *testing.T) {
@@ -169,7 +180,7 @@ func TestRootStructure(t *testing.T) {
 	})
 
 	t.Run("Reserved names excluded from datasets", func(t *testing.T) {
-		root2, _ := newTestRoot([]*axiom.Dataset{
+		root2, _ := newTestRoot(t, []axiomclient.Dataset{
 			{Name: "logs"},
 			{Name: "datasets"}, // reserved
 			{Name: "_presets"}, // reserved
@@ -194,7 +205,7 @@ func TestRootStructure(t *testing.T) {
 }
 
 func TestDatasetDir(t *testing.T) {
-	root, exec := newTestRoot([]*axiom.Dataset{{Name: "logs"}}, []byte(`{"test":true}`))
+	root, exec := newTestRoot(t, []axiomclient.Dataset{{Name: "logs"}}, []byte(`{"test":true}`))
 	ctx := context.Background()
 
 	dataset, _ := root.Lookup(ctx, "logs")
@@ -208,14 +219,12 @@ func TestDatasetDir(t *testing.T) {
 		}
 	})
 
-	t.Run("schema.json executes getschema", func(t *testing.T) {
+	t.Run("schema.json uses fields API", func(t *testing.T) {
 		node, _ := dir.Lookup(ctx, "schema.json")
-		_ = readFile(t, node.(File))
-		if !strings.Contains(exec.lastAPL(), "getschema") {
-			t.Errorf("APL should contain getschema: %s", exec.lastAPL())
-		}
-		if exec.lastFormat() != "json" {
-			t.Errorf("format = %q, want json", exec.lastFormat())
+		data := readFile(t, node.(File))
+		// schema.json now uses /fields API, not getschema query
+		if !strings.Contains(string(data), "_time") {
+			t.Errorf("schema should contain _time field: %s", data)
 		}
 	})
 
@@ -229,7 +238,7 @@ func TestDatasetDir(t *testing.T) {
 }
 
 func TestQueryPath(t *testing.T) {
-	root, exec := newTestRoot([]*axiom.Dataset{{Name: "logs"}}, []byte("row1\nrow2"))
+	root, exec := newTestRoot(t, []axiomclient.Dataset{{Name: "logs"}}, []byte("row1\nrow2"))
 	ctx := context.Background()
 
 	dataset, _ := root.Lookup(ctx, "logs")
@@ -288,7 +297,7 @@ func TestQueryPath(t *testing.T) {
 }
 
 func TestRawQueries(t *testing.T) {
-	root, exec := newTestRoot(nil, []byte("results"))
+	root, exec := newTestRoot(t, nil, []byte("results"))
 	ctx := context.Background()
 
 	queries, _ := root.Lookup(ctx, "_queries")
@@ -327,15 +336,19 @@ func TestRawQueries(t *testing.T) {
 
 func TestFieldsDir(t *testing.T) {
 	cfg := config.Default()
-	client := &mockClient{datasets: []*axiom.Dataset{{Name: "logs"}}}
+	cfg.CacheDir = t.TempDir()
+	client := &mockClient{
+		datasets: []axiomclient.Dataset{{Name: "logs"}},
+		fields: map[string][]axiomclient.Field{
+			"logs": {
+				{Name: "duration", Type: "number"},
+				{Name: "service", Type: "string"},
+				{Name: "status", Type: "number"},
+			},
+		},
+	}
 	exec := &mockExecutor{
 		data: []byte("field_data"),
-		result: &axiomquery.Result{
-			Tables: []axiomquery.Table{{
-				Fields:  []axiomquery.Field{{Name: "name"}},
-				Columns: []axiomquery.Column{{"status", "service", "duration"}},
-			}},
-		},
 	}
 	root := NewRoot(cfg, client, exec)
 	ctx := context.Background()
@@ -343,7 +356,7 @@ func TestFieldsDir(t *testing.T) {
 	dataset, _ := root.Lookup(ctx, "logs")
 	fields, _ := dataset.(Dir).Lookup(ctx, "fields")
 
-	t.Run("lists fields from schema", func(t *testing.T) {
+	t.Run("lists fields from API", func(t *testing.T) {
 		names := dirNames(t, fields.(Dir))
 		want := []string{"duration", "service", "status"}
 		if len(names) != len(want) {
@@ -352,7 +365,10 @@ func TestFieldsDir(t *testing.T) {
 	})
 
 	t.Run("field/top.csv", func(t *testing.T) {
-		fieldDir, _ := fields.(Dir).Lookup(ctx, "status")
+		fieldDir, err := fields.(Dir).Lookup(ctx, "status")
+		if err != nil {
+			t.Fatalf("Lookup status: %v", err)
+		}
 		topFile, _ := fieldDir.(Dir).Lookup(ctx, "top.csv")
 		_ = readFile(t, topFile.(File))
 		if !strings.Contains(exec.lastAPL(), "topk(status") {
@@ -361,7 +377,10 @@ func TestFieldsDir(t *testing.T) {
 	})
 
 	t.Run("field/histogram.csv", func(t *testing.T) {
-		fieldDir, _ := fields.(Dir).Lookup(ctx, "duration")
+		fieldDir, err := fields.(Dir).Lookup(ctx, "duration")
+		if err != nil {
+			t.Fatalf("Lookup duration: %v", err)
+		}
 		histFile, _ := fieldDir.(Dir).Lookup(ctx, "histogram.csv")
 		_ = readFile(t, histFile.(File))
 		if !strings.Contains(exec.lastAPL(), "histogram(duration") {
@@ -371,7 +390,7 @@ func TestFieldsDir(t *testing.T) {
 }
 
 func TestPresets(t *testing.T) {
-	root, exec := newTestRoot([]*axiom.Dataset{{Name: "logs"}}, []byte("preset_data"))
+	root, exec := newTestRoot(t, []axiomclient.Dataset{{Name: "logs"}}, []byte("preset_data"))
 	ctx := context.Background()
 
 	t.Run("_presets lists all presets", func(t *testing.T) {
@@ -404,7 +423,7 @@ func TestPresets(t *testing.T) {
 }
 
 func TestStaticFiles(t *testing.T) {
-	root, _ := newTestRoot(nil, nil)
+	root, _ := newTestRoot(t, nil, nil)
 	ctx := context.Background()
 
 	t.Run("README.txt", func(t *testing.T) {
@@ -431,19 +450,19 @@ func TestStaticFiles(t *testing.T) {
 func TestSchemaCSV(t *testing.T) {
 	cases := []struct {
 		name   string
-		result *axiomquery.Result
+		result *axiomclient.QueryResult
 		want   []string
 	}{
 		{
 			name:   "empty",
-			result: &axiomquery.Result{},
+			result: &axiomclient.QueryResult{},
 			want:   nil,
 		},
 		{
 			name: "simple fields",
-			result: &axiomquery.Result{
-				Tables: []axiomquery.Table{{
-					Fields: []axiomquery.Field{
+			result: &axiomclient.QueryResult{
+				Tables: []axiomclient.QueryTable{{
+					Fields: []axiomclient.QueryField{
 						{Name: "service", Type: "string"},
 						{Name: "count_", Type: "int64"},
 					},
@@ -453,14 +472,14 @@ func TestSchemaCSV(t *testing.T) {
 		},
 		{
 			name: "with aggregation",
-			result: &axiomquery.Result{
-				Tables: []axiomquery.Table{{
-					Fields: []axiomquery.Field{
+			result: &axiomclient.QueryResult{
+				Tables: []axiomclient.QueryTable{{
+					Fields: []axiomclient.QueryField{
 						{
 							Name: "total",
 							Type: "int64",
-							Aggregation: &axiomquery.Aggregation{
-								Op:     axiomquery.OpSum,
+							Aggregation: &axiomclient.Aggregation{
+								Op:     "sum",
 								Fields: []string{"amount"},
 							},
 						},
@@ -529,7 +548,7 @@ func TestBytesFile(t *testing.T) {
 }
 
 func TestAPLFile(t *testing.T) {
-	root, _ := newTestRoot(nil, nil)
+	root, _ := newTestRoot(t, nil, nil)
 	_ = context.Background()
 	store := root.Store()
 
@@ -584,7 +603,7 @@ func TestIsValidQueryName(t *testing.T) {
 }
 
 func TestQueryErrorFile(t *testing.T) {
-	root, exec := newTestRoot(nil, []byte("data"))
+	root, exec := newTestRoot(t, nil, []byte("data"))
 	ctx := context.Background()
 
 	t.Run("empty APL returns error", func(t *testing.T) {
@@ -614,7 +633,7 @@ func TestQueryErrorFile(t *testing.T) {
 }
 
 func TestQueryStatsFile(t *testing.T) {
-	root, _ := newTestRoot(nil, nil)
+	root, _ := newTestRoot(t, nil, nil)
 	ctx := context.Background()
 	root.Store().Set("stats", []byte("['logs']"))
 
@@ -636,11 +655,12 @@ func TestQueryStatsFile(t *testing.T) {
 
 func TestQuerySchemaFile(t *testing.T) {
 	cfg := config.Default()
+	cfg.CacheDir = t.TempDir()
 	client := &mockClient{}
 	exec := &mockExecutor{
-		result: &axiomquery.Result{
-			Tables: []axiomquery.Table{{
-				Fields: []axiomquery.Field{{Name: "col1", Type: "string"}},
+		result: &axiomclient.QueryResult{
+			Tables: []axiomclient.QueryTable{{
+				Fields: []axiomclient.QueryField{{Name: "col1", Type: "string"}},
 			}},
 		},
 	}
@@ -662,7 +682,7 @@ func TestQuerySchemaFile(t *testing.T) {
 }
 
 func TestQueryPathErrorFile(t *testing.T) {
-	root, _ := newTestRoot(nil, nil)
+	root, _ := newTestRoot(t, nil, nil)
 	ctx := context.Background()
 
 	t.Run("compile error", func(t *testing.T) {
@@ -713,7 +733,7 @@ func TestExamplesDir(t *testing.T) {
 }
 
 func TestDatasetsDir(t *testing.T) {
-	root, _ := newTestRoot([]*axiom.Dataset{{Name: "a"}, {Name: "b"}}, nil)
+	root, _ := newTestRoot(t, []axiomclient.Dataset{{Name: "a"}, {Name: "b"}}, nil)
 	ctx := context.Background()
 	datasets, _ := root.Lookup(ctx, "datasets")
 	dir := datasets.(Dir)
@@ -764,7 +784,7 @@ func TestPresetsDir(t *testing.T) {
 }
 
 func TestQueriesDir(t *testing.T) {
-	root, _ := newTestRoot(nil, nil)
+	root, _ := newTestRoot(t, nil, nil)
 	ctx := context.Background()
 	queries, _ := root.Lookup(ctx, "_queries")
 	dir := queries.(Dir)
@@ -788,7 +808,7 @@ func TestQueriesDir(t *testing.T) {
 }
 
 func TestQueryEntryDir(t *testing.T) {
-	root, _ := newTestRoot(nil, nil)
+	root, _ := newTestRoot(t, nil, nil)
 	ctx := context.Background()
 	entry := &QueryEntryDir{root: root, name: "test"}
 
@@ -821,7 +841,7 @@ func TestQueryEntryDir(t *testing.T) {
 }
 
 func TestDatasetPresetsDir(t *testing.T) {
-	root, _ := newTestRoot([]*axiom.Dataset{{Name: "logs"}}, nil)
+	root, _ := newTestRoot(t, []axiomclient.Dataset{{Name: "logs"}}, nil)
 	ctx := context.Background()
 	dataset, _ := root.Lookup(ctx, "logs")
 	presets, _ := dataset.(Dir).Lookup(ctx, "presets")

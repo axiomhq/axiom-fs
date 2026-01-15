@@ -7,25 +7,31 @@ import (
 	"syscall"
 	"testing"
 
-	"github.com/axiomhq/axiom-go/axiom"
-	axiomquery "github.com/axiomhq/axiom-go/axiom/query"
 	"github.com/go-git/go-billy/v5"
 
+	"github.com/axiomhq/axiom-fs/internal/axiomclient"
 	"github.com/axiomhq/axiom-fs/internal/config"
 	"github.com/axiomhq/axiom-fs/internal/query"
 	"github.com/axiomhq/axiom-fs/internal/vfs"
 )
 
 type mockClient struct {
-	datasets []*axiom.Dataset
+	datasets []axiomclient.Dataset
 }
 
-func (m *mockClient) ListDatasets(ctx context.Context) ([]*axiom.Dataset, error) {
+func (m *mockClient) ListDatasets(ctx context.Context) ([]axiomclient.Dataset, error) {
 	return m.datasets, nil
 }
 
-func (m *mockClient) QueryAPL(ctx context.Context, apl string) (*axiomquery.Result, error) {
-	return &axiomquery.Result{}, nil
+func (m *mockClient) ListFields(ctx context.Context, datasetID string) ([]axiomclient.Field, error) {
+	return []axiomclient.Field{
+		{Name: "_time", Type: "datetime"},
+		{Name: "message", Type: "string"},
+	}, nil
+}
+
+func (m *mockClient) QueryAPL(ctx context.Context, apl string) (*axiomclient.QueryResult, error) {
+	return &axiomclient.QueryResult{}, nil
 }
 
 type mockExecutor struct {
@@ -40,20 +46,22 @@ func (m *mockExecutor) ExecuteAPLResult(ctx context.Context, apl, format string,
 	return query.ResultData{Bytes: m.data, Size: int64(len(m.data))}, nil
 }
 
-func (m *mockExecutor) QueryAPL(ctx context.Context, apl string, opts query.ExecOptions) (*axiomquery.Result, error) {
-	return &axiomquery.Result{}, nil
+func (m *mockExecutor) QueryAPL(ctx context.Context, apl string, opts query.ExecOptions) (*axiomclient.QueryResult, error) {
+	return &axiomclient.QueryResult{}, nil
 }
 
-func newTestFS() billy.Filesystem {
+func newTestFS(t *testing.T) billy.Filesystem {
+	t.Helper()
 	cfg := config.Default()
-	client := &mockClient{datasets: []*axiom.Dataset{{Name: "logs"}, {Name: "metrics"}}}
+	cfg.CacheDir = t.TempDir()
+	client := &mockClient{datasets: []axiomclient.Dataset{{Name: "logs"}, {Name: "metrics"}}}
 	exec := &mockExecutor{data: []byte("test_data")}
 	root := vfs.NewRoot(cfg, client, exec)
 	return New(root)
 }
 
 func TestResolve(t *testing.T) {
-	fs := newTestFS()
+	fs := newTestFS(t)
 
 	cases := []struct {
 		path    string
@@ -92,7 +100,7 @@ func TestResolve(t *testing.T) {
 }
 
 func TestPathNormalization(t *testing.T) {
-	fs := newTestFS()
+	fs := newTestFS(t)
 
 	// All these should resolve to the same thing
 	paths := []string{
@@ -121,7 +129,7 @@ func TestPathNormalization(t *testing.T) {
 }
 
 func TestOpen(t *testing.T) {
-	fs := newTestFS()
+	fs := newTestFS(t)
 
 	t.Run("read file", func(t *testing.T) {
 		f, err := fs.Open("/README.txt")
@@ -144,7 +152,8 @@ func TestOpen(t *testing.T) {
 	})
 
 	t.Run("query result file", func(t *testing.T) {
-		f, err := fs.Open("/logs/schema.json")
+		// sample.ndjson uses the executor, schema.json now uses /fields API
+		f, err := fs.Open("/logs/sample.ndjson")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -158,7 +167,7 @@ func TestOpen(t *testing.T) {
 }
 
 func TestOpenFile(t *testing.T) {
-	fs := newTestFS()
+	fs := newTestFS(t)
 
 	t.Run("O_RDONLY succeeds", func(t *testing.T) {
 		f, err := fs.OpenFile("/README.txt", os.O_RDONLY, 0)
@@ -193,7 +202,7 @@ func TestOpenFile(t *testing.T) {
 }
 
 func TestCreate(t *testing.T) {
-	fs := newTestFS()
+	fs := newTestFS(t)
 
 	t.Run("in _queries succeeds", func(t *testing.T) {
 		f, err := fs.Create("/_queries/newquery/apl")
@@ -213,7 +222,7 @@ func TestCreate(t *testing.T) {
 }
 
 func TestReadDir(t *testing.T) {
-	fs := newTestFS()
+	fs := newTestFS(t)
 
 	t.Run("root", func(t *testing.T) {
 		entries, err := fs.ReadDir("/")
@@ -261,7 +270,7 @@ func TestReadDir(t *testing.T) {
 }
 
 func TestMutations(t *testing.T) {
-	fs := newTestFS()
+	fs := newTestFS(t)
 
 	t.Run("Remove outside _queries fails", func(t *testing.T) {
 		err := fs.Remove("/logs/schema.json")
@@ -307,7 +316,7 @@ func TestMutations(t *testing.T) {
 }
 
 func TestLstat(t *testing.T) {
-	fs := newTestFS()
+	fs := newTestFS(t)
 
 	// Lstat should behave same as Stat (no symlinks)
 	info1, err1 := fs.Stat("/logs")
@@ -325,7 +334,7 @@ func TestLstat(t *testing.T) {
 }
 
 func TestReadlink(t *testing.T) {
-	fs := newTestFS()
+	fs := newTestFS(t)
 	_, err := fs.Readlink("/anything")
 	if err != syscall.ENOENT {
 		t.Errorf("expected ENOENT, got %v", err)
@@ -333,7 +342,7 @@ func TestReadlink(t *testing.T) {
 }
 
 func TestJoin(t *testing.T) {
-	fs := newTestFS()
+	fs := newTestFS(t)
 
 	cases := []struct {
 		parts []string
@@ -354,14 +363,14 @@ func TestJoin(t *testing.T) {
 }
 
 func TestRoot(t *testing.T) {
-	fs := newTestFS().(*FS)
+	fs := newTestFS(t).(*FS)
 	if fs.Root() != "/" {
 		t.Errorf("Root() = %q, want /", fs.Root())
 	}
 }
 
 func TestChroot(t *testing.T) {
-	fs := newTestFS()
+	fs := newTestFS(t)
 
 	chrooted, err := fs.Chroot("/logs")
 	if err != nil {
@@ -407,7 +416,7 @@ func TestChroot(t *testing.T) {
 }
 
 func TestCapabilities(t *testing.T) {
-	fs := newTestFS().(*FS)
+	fs := newTestFS(t).(*FS)
 	caps := fs.Capabilities()
 
 	if caps&billy.ReadCapability == 0 {
@@ -422,7 +431,7 @@ func TestCapabilities(t *testing.T) {
 }
 
 func TestChangeInterface(t *testing.T) {
-	fs := newTestFS().(*FS)
+	fs := newTestFS(t).(*FS)
 
 	// These should all succeed (no-op for virtual fs)
 	if err := fs.Chmod("/logs", 0755); err != nil {
@@ -437,7 +446,7 @@ func TestChangeInterface(t *testing.T) {
 }
 
 func TestInterfaceCompliance(t *testing.T) {
-	fs := newTestFS()
+	fs := newTestFS(t)
 
 	// Verify interface compliance
 	var _ billy.Filesystem = fs
@@ -446,7 +455,7 @@ func TestInterfaceCompliance(t *testing.T) {
 }
 
 func TestChrootedFS(t *testing.T) {
-	fs := newTestFS()
+	fs := newTestFS(t)
 	chrooted, _ := fs.Chroot("/logs")
 
 	t.Run("Open", func(t *testing.T) {
@@ -528,7 +537,7 @@ func TestChrootedFS(t *testing.T) {
 }
 
 func TestRemoveInQueries(t *testing.T) {
-	fs := newTestFS()
+	fs := newTestFS(t)
 
 	// Remove in _queries still returns EROFS (not fully implemented)
 	err := fs.Remove("/_queries/test")
@@ -538,7 +547,7 @@ func TestRemoveInQueries(t *testing.T) {
 }
 
 func TestRenameInQueries(t *testing.T) {
-	fs := newTestFS()
+	fs := newTestFS(t)
 
 	err := fs.Rename("/_queries/a", "/_queries/b")
 	if err != syscall.EROFS {
@@ -547,7 +556,7 @@ func TestRenameInQueries(t *testing.T) {
 }
 
 func TestChrootOpenFile(t *testing.T) {
-	fs := newTestFS()
+	fs := newTestFS(t)
 	chrooted, _ := fs.Chroot("/logs")
 
 	t.Run("read only", func(t *testing.T) {
@@ -567,7 +576,7 @@ func TestChrootOpenFile(t *testing.T) {
 }
 
 func TestChrootCreate(t *testing.T) {
-	fs := newTestFS()
+	fs := newTestFS(t)
 	chrooted, _ := fs.Chroot("/logs")
 
 	_, err := chrooted.Create("/newfile")
@@ -577,7 +586,7 @@ func TestChrootCreate(t *testing.T) {
 }
 
 func TestChrootStat(t *testing.T) {
-	fs := newTestFS()
+	fs := newTestFS(t)
 	chrooted, _ := fs.Chroot("/logs")
 
 	info, err := chrooted.Stat("/schema.json")
@@ -598,7 +607,7 @@ func TestChrootStat(t *testing.T) {
 }
 
 func TestChrootJoin(t *testing.T) {
-	fs := newTestFS()
+	fs := newTestFS(t)
 	chrooted, _ := fs.Chroot("/logs")
 
 	got := chrooted.Join("a", "b", "c")
@@ -608,7 +617,7 @@ func TestChrootJoin(t *testing.T) {
 }
 
 func TestQueriesWriteFlow(t *testing.T) {
-	fs := newTestFS()
+	fs := newTestFS(t)
 
 	// Full write flow
 	f, err := fs.Create("/_queries/writetest/apl")
@@ -637,7 +646,7 @@ func TestQueriesWriteFlow(t *testing.T) {
 }
 
 func TestFileSeekAndReadAt(t *testing.T) {
-	fs := newTestFS()
+	fs := newTestFS(t)
 	f, err := fs.Open("/README.txt")
 	if err != nil {
 		t.Fatal(err)

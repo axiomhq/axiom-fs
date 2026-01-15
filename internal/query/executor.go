@@ -12,7 +12,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/axiomhq/axiom-go/axiom/query"
 	"golang.org/x/sync/singleflight"
 
 	"github.com/axiomhq/axiom-fs/internal/axiomclient"
@@ -39,7 +38,7 @@ type ExecOptions struct {
 type Runner interface {
 	ExecuteAPL(ctx context.Context, apl, format string, opts ExecOptions) ([]byte, error)
 	ExecuteAPLResult(ctx context.Context, apl, format string, opts ExecOptions) (ResultData, error)
-	QueryAPL(ctx context.Context, apl string, opts ExecOptions) (*query.Result, error)
+	QueryAPL(ctx context.Context, apl string, opts ExecOptions) (*axiomclient.QueryResult, error)
 }
 
 type ResultData struct {
@@ -60,7 +59,7 @@ func NewExecutor(client axiomclient.API, c *cache.Cache, defaultRange string, de
 	}
 }
 
-func (e *Executor) QueryAPL(ctx context.Context, apl string, opts ExecOptions) (*query.Result, error) {
+func (e *Executor) QueryAPL(ctx context.Context, apl string, opts ExecOptions) (*axiomclient.QueryResult, error) {
 	if opts.EnsureTimeRange {
 		apl = ensureTimeRange(apl, e.defaultRange)
 	}
@@ -150,7 +149,7 @@ func (e *Executor) ExecuteAPLResult(ctx context.Context, apl, format string, opt
 	return value.(ResultData), nil
 }
 
-func encodeResult(result *query.Result, format string) ([]byte, error) {
+func encodeResult(result *axiomclient.QueryResult, format string) ([]byte, error) {
 	if len(result.Tables) == 0 {
 		switch format {
 		case "json":
@@ -175,7 +174,7 @@ func encodeResult(result *query.Result, format string) ([]byte, error) {
 	}
 }
 
-func encodeResultToWriter(result *query.Result, format string, w io.Writer) error {
+func encodeResultToWriter(result *axiomclient.QueryResult, format string, w io.Writer) error {
 	if len(result.Tables) == 0 {
 		switch format {
 		case "json":
@@ -199,10 +198,10 @@ func encodeResultToWriter(result *query.Result, format string, w io.Writer) erro
 	}
 }
 
-func encodeNDJSON(table query.Table) ([]byte, error) {
+func encodeNDJSON(table axiomclient.QueryTable) ([]byte, error) {
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
-	for row := range table.Rows() {
+	for _, row := range tableRows(table) {
 		entry := make(map[string]any, len(table.Fields))
 		for i, field := range table.Fields {
 			if i < len(row) {
@@ -216,9 +215,9 @@ func encodeNDJSON(table query.Table) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-func encodeNDJSONToWriter(table query.Table, w io.Writer) error {
+func encodeNDJSONToWriter(table axiomclient.QueryTable, w io.Writer) error {
 	enc := json.NewEncoder(w)
-	for row := range table.Rows() {
+	for _, row := range tableRows(table) {
 		entry := make(map[string]any, len(table.Fields))
 		for i, field := range table.Fields {
 			if i < len(row) {
@@ -232,9 +231,9 @@ func encodeNDJSONToWriter(table query.Table, w io.Writer) error {
 	return nil
 }
 
-func encodeJSON(table query.Table) ([]byte, error) {
+func encodeJSON(table axiomclient.QueryTable) ([]byte, error) {
 	rows := make([]map[string]any, 0)
-	for row := range table.Rows() {
+	for _, row := range tableRows(table) {
 		entry := make(map[string]any, len(table.Fields))
 		for i, field := range table.Fields {
 			if i < len(row) {
@@ -250,9 +249,9 @@ func encodeJSON(table query.Table) ([]byte, error) {
 	return append(data, '\n'), nil
 }
 
-func encodeJSONToWriter(table query.Table, w io.Writer) error {
+func encodeJSONToWriter(table axiomclient.QueryTable, w io.Writer) error {
 	rows := make([]map[string]any, 0)
-	for row := range table.Rows() {
+	for _, row := range tableRows(table) {
 		entry := make(map[string]any, len(table.Fields))
 		for i, field := range table.Fields {
 			if i < len(row) {
@@ -266,7 +265,7 @@ func encodeJSONToWriter(table query.Table, w io.Writer) error {
 	return enc.Encode(rows)
 }
 
-func encodeCSV(table query.Table) ([]byte, error) {
+func encodeCSV(table axiomclient.QueryTable) ([]byte, error) {
 	var buf bytes.Buffer
 	writer := csv.NewWriter(&buf)
 	header := make([]string, 0, len(table.Fields))
@@ -276,7 +275,7 @@ func encodeCSV(table query.Table) ([]byte, error) {
 	if err := writer.Write(header); err != nil {
 		return nil, err
 	}
-	for row := range table.Rows() {
+	for _, row := range tableRows(table) {
 		record := make([]string, len(table.Fields))
 		for i := range table.Fields {
 			if i < len(row) {
@@ -294,7 +293,7 @@ func encodeCSV(table query.Table) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-func encodeCSVToWriter(table query.Table, w io.Writer) error {
+func encodeCSVToWriter(table axiomclient.QueryTable, w io.Writer) error {
 	writer := csv.NewWriter(w)
 	header := make([]string, 0, len(table.Fields))
 	for _, field := range table.Fields {
@@ -303,7 +302,7 @@ func encodeCSVToWriter(table query.Table, w io.Writer) error {
 	if err := writer.Write(header); err != nil {
 		return err
 	}
-	for row := range table.Rows() {
+	for _, row := range tableRows(table) {
 		record := make([]string, len(table.Fields))
 		for i := range table.Fields {
 			if i < len(row) {
@@ -316,6 +315,23 @@ func encodeCSVToWriter(table query.Table, w io.Writer) error {
 	}
 	writer.Flush()
 	return writer.Error()
+}
+
+func tableRows(table axiomclient.QueryTable) [][]any {
+	if len(table.Columns) == 0 {
+		return nil
+	}
+	numRows := len(table.Columns[0])
+	rows := make([][]any, numRows)
+	for i := range rows {
+		rows[i] = make([]any, len(table.Columns))
+		for j, col := range table.Columns {
+			if i < len(col) {
+				rows[i][j] = col[i]
+			}
+		}
+	}
+	return rows
 }
 
 func stringify(value any) string {
@@ -333,7 +349,7 @@ func ensureTimeRange(apl, defaultRange string) string {
 	if strings.Contains(apl, "_time between") {
 		return apl
 	}
-	rangeExpr := fmt.Sprintf("where _time between (ago(%s) .. now())", defaultRange)
+	rangeExpr := "where _time between (ago(" + defaultRange + ") .. now())"
 	if strings.Contains(apl, "|") {
 		return insertPipeline(apl, rangeExpr)
 	}
@@ -348,7 +364,21 @@ func ensureLimit(apl string, defaultLimit int) string {
 	if strings.Contains(lower, " take ") || strings.Contains(lower, "| take") || strings.Contains(lower, " top ") {
 		return apl
 	}
-	return apl + fmt.Sprintf("\n| take %d", defaultLimit)
+	return apl + "\n| take " + itoa(defaultLimit)
+}
+
+func itoa(n int) string {
+	if n == 0 {
+		return "0"
+	}
+	var buf [20]byte
+	i := len(buf)
+	for n > 0 {
+		i--
+		buf[i] = byte('0' + n%10)
+		n /= 10
+	}
+	return string(buf[i:])
 }
 
 func insertPipeline(apl, clause string) string {
@@ -358,11 +388,11 @@ func insertPipeline(apl, clause string) string {
 	}
 	head := strings.TrimRight(parts[0], " \n")
 	rest := strings.TrimLeft(parts[1], " \n")
-	return fmt.Sprintf("%s\n| %s\n| %s", head, clause, rest)
+	return head + "\n| " + clause + "\n| " + rest
 }
 
 func cacheKey(apl, format string) string {
-	return fmt.Sprintf("%s|%s", apl, format)
+	return apl + "|" + format
 }
 
 func BuildErrorAPL(apl string, err error) []byte {

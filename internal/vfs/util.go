@@ -1,19 +1,14 @@
 package vfs
 
 import (
-	"context"
 	"encoding/csv"
-	"fmt"
 	"os"
-	"sort"
 	"strings"
 
-	axiomquery "github.com/axiomhq/axiom-go/axiom/query"
-
+	"github.com/axiomhq/axiom-fs/internal/axiomclient"
 	"github.com/axiomhq/axiom-fs/internal/compiler"
 	"github.com/axiomhq/axiom-fs/internal/config"
 	"github.com/axiomhq/axiom-fs/internal/presets"
-	"github.com/axiomhq/axiom-fs/internal/query"
 )
 
 func compilePath(dataset string, segments []string, cfg config.Config) (compiler.Query, error) {
@@ -46,57 +41,7 @@ var exampleText = []byte(`Example query:
 /mnt/axiom/logs/q/range/ago/1h/where/status>=500/summarize/count()/by/service/order/count_:desc/limit/50/result.csv
 `)
 
-func fetchFields(ctx context.Context, root *Root, dataset string) ([]string, error) {
-	apl := fmt.Sprintf("['%s']\n| where _time between (ago(%s) .. now())\n| getschema",
-		dataset,
-		root.Config().DefaultRange,
-	)
-	result, err := root.Executor().QueryAPL(ctx, apl, query.ExecOptions{})
-	if err != nil {
-		return nil, err
-	}
-	return extractFieldNames(result), nil
-}
-
-func extractFieldNames(result *axiomquery.Result) []string {
-	if result == nil || len(result.Tables) == 0 {
-		return nil
-	}
-	table := result.Tables[0]
-	if len(table.Columns) == 0 {
-		return nil
-	}
-	index := -1
-	for i, field := range table.Fields {
-		switch strings.ToLower(field.Name) {
-		case "name", "field", "column", "key":
-			index = i
-		}
-	}
-	if index == -1 {
-		index = 0
-	}
-	if index >= len(table.Columns) {
-		return nil
-	}
-	column := table.Columns[index]
-	unique := make(map[string]struct{})
-	for _, value := range column {
-		name := strings.TrimSpace(fmt.Sprint(value))
-		if name == "" {
-			continue
-		}
-		unique[name] = struct{}{}
-	}
-	names := make([]string, 0, len(unique))
-	for name := range unique {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	return names
-}
-
-func schemaCSV(result *axiomquery.Result) ([]byte, error) {
+func schemaCSV(result *axiomclient.QueryResult) ([]byte, error) {
 	if len(result.Tables) == 0 {
 		return []byte{}, nil
 	}
@@ -122,19 +67,95 @@ func schemaCSV(result *axiomquery.Result) ([]byte, error) {
 	return []byte(buf.String()), nil
 }
 
-func aggregationString(agg *axiomquery.Aggregation) string {
+func aggregationString(agg *axiomclient.Aggregation) string {
 	if agg == nil {
 		return ""
 	}
-	op := agg.Op.String()
+	op := agg.Op
 	if len(agg.Fields) == 0 && len(agg.Args) == 0 {
 		return op
 	}
 	args := append([]string{}, agg.Fields...)
 	for _, arg := range agg.Args {
-		args = append(args, fmt.Sprint(arg))
+		switch v := arg.(type) {
+		case string:
+			args = append(args, v)
+		default:
+			args = append(args, stringify(v))
+		}
 	}
-	return fmt.Sprintf("%s(%s)", op, strings.Join(args, ", "))
+	return op + "(" + strings.Join(args, ", ") + ")"
+}
+
+func stringify(v any) string {
+	switch x := v.(type) {
+	case string:
+		return x
+	case float64:
+		if x == float64(int64(x)) {
+			return itoa(int(x))
+		}
+		return ftoa(x)
+	case int:
+		return itoa(x)
+	case int64:
+		return itoa(int(x))
+	case bool:
+		if x {
+			return "true"
+		}
+		return "false"
+	default:
+		return ""
+	}
+}
+
+func itoa(n int) string {
+	if n == 0 {
+		return "0"
+	}
+	neg := n < 0
+	if neg {
+		n = -n
+	}
+	var buf [20]byte
+	i := len(buf)
+	for n > 0 {
+		i--
+		buf[i] = byte('0' + n%10)
+		n /= 10
+	}
+	if neg {
+		i--
+		buf[i] = '-'
+	}
+	return string(buf[i:])
+}
+
+func ftoa(f float64) string {
+	if f == 0 {
+		return "0"
+	}
+	neg := f < 0
+	if neg {
+		f = -f
+	}
+	intPart := int64(f)
+	fracPart := f - float64(intPart)
+	result := itoa(int(intPart))
+	if fracPart > 0 {
+		result += "."
+		for i := 0; i < 6 && fracPart > 0.0000001; i++ {
+			fracPart *= 10
+			digit := int(fracPart)
+			result += string(byte('0' + digit))
+			fracPart -= float64(digit)
+		}
+	}
+	if neg {
+		return "-" + result
+	}
+	return result
 }
 
 func allPresets() []presets.Preset {

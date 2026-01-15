@@ -54,13 +54,7 @@ func (q *QueryPathResultFile) execute(ctx context.Context) (query.ResultData, er
 }
 
 func (q *QueryPathResultFile) Stat(ctx context.Context) (os.FileInfo, error) {
-	// Execute query to get accurate size - results are cached by executor
-	result, err := q.execute(ctx)
-	if err != nil {
-		// Return placeholder on error - Open will return the actual error
-		return DynamicFileInfo("result.ndjson"), nil
-	}
-	return FileInfo("result.ndjson", result.Size), nil
+	return DynamicFileInfo("result.ndjson"), nil
 }
 
 func (q *QueryPathResultFile) Open(ctx context.Context, flags int) (billy.File, error) {
@@ -91,8 +85,7 @@ func (q *QueryPathErrorFile) buildError(ctx context.Context) []byte {
 }
 
 func (q *QueryPathErrorFile) Stat(ctx context.Context) (os.FileInfo, error) {
-	data := q.buildError(ctx)
-	return FileInfo("result.error", int64(len(data))), nil
+	return DynamicFileInfo("result.error"), nil
 }
 
 func (q *QueryPathErrorFile) Open(ctx context.Context, flags int) (billy.File, error) {

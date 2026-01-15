@@ -40,6 +40,7 @@ func main() {
 	fsFlagSet.StringVar(&cfg.QueryDir, "query-dir", cfg.QueryDir, "directory for persisted raw queries")
 	fsFlagSet.StringVar(&cfg.TempDir, "temp-dir", cfg.TempDir, "temporary directory for large result files")
 	fsFlagSet.IntVar(&cfg.SampleLimit, "sample-limit", cfg.SampleLimit, "sample size for sample.ndjson")
+	fsFlagSet.DurationVar(&cfg.MetadataTTL, "metadata-ttl", cfg.MetadataTTL, "dataset and field cache TTL")
 	fsFlagSet.StringVar(&cfg.AxiomURL, "axiom-url", "", "Axiom API base URL (overrides env)")
 	fsFlagSet.StringVar(&cfg.AxiomToken, "axiom-token", "", "Axiom token (overrides env)")
 	fsFlagSet.StringVar(&cfg.AxiomOrgID, "axiom-org", "", "Axiom org ID (overrides env)")
@@ -76,6 +77,13 @@ func run(ctx context.Context, cfg config.Config) error {
 
 	root := vfs.NewRoot(cfg, client, exec)
 	billyFS := nfsfs.New(root)
+
+	// Prefetch datasets to warm cache before Finder opens
+	go func() {
+		if _, err := root.ReadDir(context.Background()); err != nil {
+			fmt.Fprintf(os.Stderr, "prefetch warning: %v\n", err)
+		}
+	}()
 
 	handler := nfshelper.NewNullAuthHandler(billyFS)
 	cacheHandler := nfshelper.NewCachingHandler(handler, 1024)

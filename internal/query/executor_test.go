@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/axiomhq/axiom-go/axiom/query"
+	"github.com/axiomhq/axiom-fs/internal/axiomclient"
 )
 
 func TestEnsureTimeRange(t *testing.T) {
@@ -156,14 +156,14 @@ func TestCacheKey(t *testing.T) {
 	}
 }
 
-func makeTestTable(fields []string, rows [][]any) query.Table {
-	qFields := make([]query.Field, len(fields))
+func makeTestTable(fields []string, rows [][]any) axiomclient.QueryTable {
+	qFields := make([]axiomclient.QueryField, len(fields))
 	for i, name := range fields {
-		qFields[i] = query.Field{Name: name}
+		qFields[i] = axiomclient.QueryField{Name: name}
 	}
-	columns := make([]query.Column, len(fields))
+	columns := make([][]any, len(fields))
 	for i := range fields {
-		columns[i] = make(query.Column, len(rows))
+		columns[i] = make([]any, len(rows))
 	}
 	for rowIdx, row := range rows {
 		for colIdx, val := range row {
@@ -172,7 +172,7 @@ func makeTestTable(fields []string, rows [][]any) query.Table {
 			}
 		}
 	}
-	return query.Table{
+	return axiomclient.QueryTable{
 		Fields:  qFields,
 		Columns: columns,
 	}
@@ -180,7 +180,7 @@ func makeTestTable(fields []string, rows [][]any) query.Table {
 
 func TestEncodeResult(t *testing.T) {
 	t.Run("empty result ndjson", func(t *testing.T) {
-		result := &query.Result{Tables: nil}
+		result := &axiomclient.QueryResult{Tables: nil}
 		got, err := encodeResult(result, "ndjson")
 		if err != nil {
 			t.Fatalf("encodeResult() error = %v", err)
@@ -191,7 +191,7 @@ func TestEncodeResult(t *testing.T) {
 	})
 
 	t.Run("empty result json", func(t *testing.T) {
-		result := &query.Result{Tables: nil}
+		result := &axiomclient.QueryResult{Tables: nil}
 		got, err := encodeResult(result, "json")
 		if err != nil {
 			t.Fatalf("encodeResult() error = %v", err)
@@ -202,7 +202,7 @@ func TestEncodeResult(t *testing.T) {
 	})
 
 	t.Run("empty result csv", func(t *testing.T) {
-		result := &query.Result{Tables: nil}
+		result := &axiomclient.QueryResult{Tables: nil}
 		got, err := encodeResult(result, "csv")
 		if err != nil {
 			t.Fatalf("encodeResult() error = %v", err)
@@ -217,7 +217,7 @@ func TestEncodeResult(t *testing.T) {
 			{"foo", 1},
 			{"bar", 2},
 		})
-		result := &query.Result{Tables: []query.Table{table}}
+		result := &axiomclient.QueryResult{Tables: []axiomclient.QueryTable{table}}
 		got, err := encodeResult(result, "ndjson")
 		if err != nil {
 			t.Fatalf("encodeResult() error = %v", err)
@@ -240,7 +240,7 @@ func TestEncodeResult(t *testing.T) {
 			{100},
 			{200},
 		})
-		result := &query.Result{Tables: []query.Table{table}}
+		result := &axiomclient.QueryResult{Tables: []axiomclient.QueryTable{table}}
 		got, err := encodeResult(result, "json")
 		if err != nil {
 			t.Fatalf("encodeResult() error = %v", err)
@@ -258,7 +258,7 @@ func TestEncodeResult(t *testing.T) {
 		table := makeTestTable([]string{"a", "b"}, [][]any{
 			{"x", "y"},
 		})
-		result := &query.Result{Tables: []query.Table{table}}
+		result := &axiomclient.QueryResult{Tables: []axiomclient.QueryTable{table}}
 		got, err := encodeResult(result, "csv")
 		if err != nil {
 			t.Fatalf("encodeResult() error = %v", err)
@@ -277,7 +277,7 @@ func TestEncodeResult(t *testing.T) {
 
 	t.Run("unsupported format", func(t *testing.T) {
 		table := makeTestTable([]string{"a"}, [][]any{{"x"}})
-		result := &query.Result{Tables: []query.Table{table}}
+		result := &axiomclient.QueryResult{Tables: []axiomclient.QueryTable{table}}
 		_, err := encodeResult(result, "xml")
 		if err == nil {
 			t.Error("expected error for unsupported format")
@@ -287,7 +287,7 @@ func TestEncodeResult(t *testing.T) {
 
 func TestEncodeResultToWriter(t *testing.T) {
 	t.Run("empty result json", func(t *testing.T) {
-		result := &query.Result{Tables: nil}
+		result := &axiomclient.QueryResult{Tables: nil}
 		var buf bytes.Buffer
 		err := encodeResultToWriter(result, "json", &buf)
 		if err != nil {
@@ -299,7 +299,7 @@ func TestEncodeResultToWriter(t *testing.T) {
 	})
 
 	t.Run("empty result ndjson", func(t *testing.T) {
-		result := &query.Result{Tables: nil}
+		result := &axiomclient.QueryResult{Tables: nil}
 		var buf bytes.Buffer
 		err := encodeResultToWriter(result, "ndjson", &buf)
 		if err != nil {
@@ -312,7 +312,7 @@ func TestEncodeResultToWriter(t *testing.T) {
 
 	t.Run("ndjson with data", func(t *testing.T) {
 		table := makeTestTable([]string{"x"}, [][]any{{42}})
-		result := &query.Result{Tables: []query.Table{table}}
+		result := &axiomclient.QueryResult{Tables: []axiomclient.QueryTable{table}}
 		var buf bytes.Buffer
 		err := encodeResultToWriter(result, "ndjson", &buf)
 		if err != nil {
@@ -325,7 +325,7 @@ func TestEncodeResultToWriter(t *testing.T) {
 
 	t.Run("csv with data", func(t *testing.T) {
 		table := makeTestTable([]string{"col"}, [][]any{{"val"}})
-		result := &query.Result{Tables: []query.Table{table}}
+		result := &axiomclient.QueryResult{Tables: []axiomclient.QueryTable{table}}
 		var buf bytes.Buffer
 		err := encodeResultToWriter(result, "csv", &buf)
 		if err != nil {
@@ -338,7 +338,7 @@ func TestEncodeResultToWriter(t *testing.T) {
 
 	t.Run("unsupported format", func(t *testing.T) {
 		table := makeTestTable([]string{"a"}, [][]any{{"x"}})
-		result := &query.Result{Tables: []query.Table{table}}
+		result := &axiomclient.QueryResult{Tables: []axiomclient.QueryTable{table}}
 		var buf bytes.Buffer
 		err := encodeResultToWriter(result, "yaml", &buf)
 		if err == nil {

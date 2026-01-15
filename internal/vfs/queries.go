@@ -123,11 +123,7 @@ func (q *QueryResultFile) execute(ctx context.Context) (query.ResultData, error)
 }
 
 func (q *QueryResultFile) Stat(ctx context.Context) (os.FileInfo, error) {
-	result, err := q.execute(ctx)
-	if err != nil {
-		return DynamicFileInfo("result." + q.format), nil
-	}
-	return FileInfo("result."+q.format, result.Size), nil
+	return DynamicFileInfo("result." + q.format), nil
 }
 
 func (q *QueryResultFile) Open(ctx context.Context, flags int) (billy.File, error) {
@@ -157,8 +153,7 @@ func (q *QueryErrorFile) buildError(ctx context.Context) []byte {
 }
 
 func (q *QueryErrorFile) Stat(ctx context.Context) (os.FileInfo, error) {
-	data := q.buildError(ctx)
-	return FileInfo("result.error", int64(len(data))), nil
+	return DynamicFileInfo("result.error"), nil
 }
 
 func (q *QueryErrorFile) Open(ctx context.Context, flags int) (billy.File, error) {
@@ -188,11 +183,7 @@ func (q *QuerySchemaFile) buildSchema(ctx context.Context) ([]byte, error) {
 }
 
 func (q *QuerySchemaFile) Stat(ctx context.Context) (os.FileInfo, error) {
-	data, err := q.buildSchema(ctx)
-	if err != nil {
-		return DynamicFileInfo("schema.csv"), nil
-	}
-	return FileInfo("schema.csv", int64(len(data))), nil
+	return DynamicFileInfo("schema.csv"), nil
 }
 
 func (q *QuerySchemaFile) Open(ctx context.Context, flags int) (billy.File, error) {
@@ -233,11 +224,7 @@ func (q *QueryStatsFile) buildStats(ctx context.Context) ([]byte, error) {
 }
 
 func (q *QueryStatsFile) Stat(ctx context.Context) (os.FileInfo, error) {
-	data, err := q.buildStats(ctx)
-	if err != nil {
-		return DynamicFileInfo("stats.json"), nil
-	}
-	return FileInfo("stats.json", int64(len(data))), nil
+	return DynamicFileInfo("stats.json"), nil
 }
 
 func (q *QueryStatsFile) Open(ctx context.Context, flags int) (billy.File, error) {

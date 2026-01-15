@@ -1,14 +1,17 @@
 package vfs
 
 import (
+	"bytes"
 	"context"
-	"fmt"
+	"encoding/csv"
+	"encoding/json"
 	"os"
 	"sort"
+	"strconv"
 
-	"github.com/axiomhq/axiom-go/axiom"
 	"github.com/go-git/go-billy/v5"
 
+	"github.com/axiomhq/axiom-fs/internal/axiomclient"
 	"github.com/axiomhq/axiom-fs/internal/query"
 )
 
@@ -27,7 +30,7 @@ func (d *DatasetsDir) ReadDir(ctx context.Context) ([]os.FileInfo, error) {
 	}
 	entries := make([]os.FileInfo, 0, len(datasets))
 	for _, dataset := range datasets {
-		if dataset == nil || dataset.Name == "" {
+		if dataset.Name == "" {
 			continue
 		}
 		entries = append(entries, DirInfo(dataset.Name))
@@ -41,9 +44,9 @@ func (d *DatasetsDir) Lookup(ctx context.Context, name string) (Node, error) {
 	if err != nil {
 		return nil, err
 	}
-	for _, dataset := range datasets {
-		if dataset != nil && dataset.Name == name {
-			return &DatasetDir{root: d.root, dataset: dataset}, nil
+	for i := range datasets {
+		if datasets[i].Name == name {
+			return &DatasetDir{root: d.root, dataset: &datasets[i]}, nil
 		}
 	}
 	return nil, os.ErrNotExist
@@ -51,7 +54,7 @@ func (d *DatasetsDir) Lookup(ctx context.Context, name string) (Node, error) {
 
 type DatasetDir struct {
 	root    *Root
-	dataset *axiom.Dataset
+	dataset *axiomclient.Dataset
 }
 
 func (d *DatasetDir) Stat(ctx context.Context) (os.FileInfo, error) {
@@ -90,7 +93,7 @@ func (d *DatasetDir) Lookup(ctx context.Context, name string) (Node, error) {
 
 type FieldsDir struct {
 	root    *Root
-	dataset *axiom.Dataset
+	dataset *axiomclient.Dataset
 }
 
 func (f *FieldsDir) Stat(ctx context.Context) (os.FileInfo, error) {
@@ -98,25 +101,35 @@ func (f *FieldsDir) Stat(ctx context.Context) (os.FileInfo, error) {
 }
 
 func (f *FieldsDir) ReadDir(ctx context.Context) ([]os.FileInfo, error) {
-	fields, err := f.root.fields().List(ctx, f.root, f.dataset.Name)
+	fields, err := f.root.fields().List(ctx, f.root.Client(), f.dataset.Name)
 	if err != nil {
 		return nil, err
 	}
 	entries := make([]os.FileInfo, 0, len(fields))
 	for _, field := range fields {
-		entries = append(entries, DirInfo(field))
+		if field.Hidden {
+			continue
+		}
+		entries = append(entries, DirInfo(field.Name))
 	}
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Name() < entries[j].Name() })
 	return entries, nil
 }
 
 func (f *FieldsDir) Lookup(ctx context.Context, name string) (Node, error) {
-	return &FieldDir{root: f.root, dataset: f.dataset, field: name}, nil
+	field, found, err := f.root.fields().Lookup(ctx, f.root.Client(), f.dataset.Name, name)
+	if err != nil {
+		return &FieldDir{root: f.root, dataset: f.dataset, field: name}, nil
+	}
+	if !found {
+		return nil, os.ErrNotExist
+	}
+	return &FieldDir{root: f.root, dataset: f.dataset, field: field.Name}, nil
 }
 
 type FieldDir struct {
 	root    *Root
-	dataset *axiom.Dataset
+	dataset *axiomclient.Dataset
 	field   string
 }
 
@@ -144,28 +157,52 @@ func (f *FieldDir) Lookup(ctx context.Context, name string) (Node, error) {
 
 type DatasetSchemaFile struct {
 	root    *Root
-	dataset *axiom.Dataset
+	dataset *axiomclient.Dataset
 	format  string
 }
 
 func (d *DatasetSchemaFile) buildSchema(ctx context.Context) ([]byte, error) {
-	apl := fmt.Sprintf("['%s']\n| where _time between (ago(%s) .. now())\n| getschema",
-		d.dataset.Name,
-		d.root.Config().DefaultRange,
-	)
-	return d.root.Executor().ExecuteAPL(ctx, apl, d.format, query.ExecOptions{
-		UseCache:        true,
-		EnsureTimeRange: false,
-		EnsureLimit:     false,
-	})
+	fields, err := d.root.fields().List(ctx, d.root.Client(), d.dataset.Name)
+	if err != nil {
+		return nil, err
+	}
+	switch d.format {
+	case "json":
+		data, err := json.MarshalIndent(fields, "", "  ")
+		if err != nil {
+			return nil, err
+		}
+		return append(data, '\n'), nil
+	case "csv":
+		return fieldsToCSV(fields)
+	default:
+		return nil, os.ErrInvalid
+	}
+}
+
+func fieldsToCSV(fields []axiomclient.Field) ([]byte, error) {
+	var buf bytes.Buffer
+	w := csv.NewWriter(&buf)
+	if err := w.Write([]string{"name", "type", "description", "unit"}); err != nil {
+		return nil, err
+	}
+	for _, f := range fields {
+		if f.Hidden {
+			continue
+		}
+		if err := w.Write([]string{f.Name, f.Type, f.Description, f.Unit}); err != nil {
+			return nil, err
+		}
+	}
+	w.Flush()
+	if err := w.Error(); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
 }
 
 func (d *DatasetSchemaFile) Stat(ctx context.Context) (os.FileInfo, error) {
-	data, err := d.buildSchema(ctx)
-	if err != nil {
-		return DynamicFileInfo("schema." + d.format), nil
-	}
-	return FileInfo("schema."+d.format, int64(len(data))), nil
+	return DynamicFileInfo("schema." + d.format), nil
 }
 
 func (d *DatasetSchemaFile) Open(ctx context.Context, flags int) (billy.File, error) {
@@ -178,29 +215,21 @@ func (d *DatasetSchemaFile) Open(ctx context.Context, flags int) (billy.File, er
 
 type DatasetSampleFile struct {
 	root    *Root
-	dataset *axiom.Dataset
+	dataset *axiomclient.Dataset
 }
 
 func (d *DatasetSampleFile) buildSample(ctx context.Context) ([]byte, error) {
 	cfg := d.root.Config()
-	apl := fmt.Sprintf("['%s']\n| where _time between (ago(%s) .. now())\n| take %d",
-		d.dataset.Name,
-		cfg.DefaultRange,
-		cfg.SampleLimit,
-	)
+	apl := "['" + d.dataset.Name + "']\n| take " + strconv.Itoa(cfg.SampleLimit)
 	return d.root.Executor().ExecuteAPL(ctx, apl, "ndjson", query.ExecOptions{
 		UseCache:        true,
-		EnsureTimeRange: false,
+		EnsureTimeRange: true,
 		EnsureLimit:     false,
 	})
 }
 
 func (d *DatasetSampleFile) Stat(ctx context.Context) (os.FileInfo, error) {
-	data, err := d.buildSample(ctx)
-	if err != nil {
-		return DynamicFileInfo("sample.ndjson"), nil
-	}
-	return FileInfo("sample.ndjson", int64(len(data))), nil
+	return DynamicFileInfo("sample.ndjson"), nil
 }
 
 func (d *DatasetSampleFile) Open(ctx context.Context, flags int) (billy.File, error) {
@@ -213,7 +242,7 @@ func (d *DatasetSampleFile) Open(ctx context.Context, flags int) (billy.File, er
 
 type FieldQueryFile struct {
 	root    *Root
-	dataset *axiom.Dataset
+	dataset *axiomclient.Dataset
 	field   string
 	kind    string
 }
@@ -222,30 +251,22 @@ func (f *FieldQueryFile) buildFieldQuery(ctx context.Context) ([]byte, error) {
 	var expr string
 	switch f.kind {
 	case "top":
-		expr = fmt.Sprintf("summarize topk(%s, 10)", f.field)
+		expr = "summarize topk(" + f.field + ", 10)"
 	case "histogram":
-		expr = fmt.Sprintf("summarize histogram(%s, 100)", f.field)
+		expr = "summarize histogram(" + f.field + ", 100)"
 	default:
 		return nil, os.ErrInvalid
 	}
-	apl := fmt.Sprintf("['%s']\n| where _time between (ago(%s) .. now())\n| %s",
-		f.dataset.Name,
-		f.root.Config().DefaultRange,
-		expr,
-	)
+	apl := "['" + f.dataset.Name + "']\n| " + expr
 	return f.root.Executor().ExecuteAPL(ctx, apl, "csv", query.ExecOptions{
 		UseCache:        true,
-		EnsureTimeRange: false,
+		EnsureTimeRange: true,
 		EnsureLimit:     false,
 	})
 }
 
 func (f *FieldQueryFile) Stat(ctx context.Context) (os.FileInfo, error) {
-	data, err := f.buildFieldQuery(ctx)
-	if err != nil {
-		return DynamicFileInfo(f.kind + ".csv"), nil
-	}
-	return FileInfo(f.kind+".csv", int64(len(data))), nil
+	return DynamicFileInfo(f.kind + ".csv"), nil
 }
 
 func (f *FieldQueryFile) Open(ctx context.Context, flags int) (billy.File, error) {

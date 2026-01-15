@@ -1,22 +1,84 @@
 package axiomclient
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/BurntSushi/toml"
-	"github.com/axiomhq/axiom-go/axiom"
-	"github.com/axiomhq/axiom-go/axiom/query"
 )
 
-type Client struct {
-	raw *axiom.Client
+// Field represents a field in a dataset.
+type Field struct {
+	Name        string `json:"name"`
+	Type        string `json:"type"`
+	Description string `json:"description,omitempty"`
+	Hidden      bool   `json:"hidden,omitempty"`
+	Unit        string `json:"unit,omitempty"`
 }
 
+// Dataset represents an Axiom dataset.
+type Dataset struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Kind        string `json:"kind,omitempty"`
+	Description string `json:"description,omitempty"`
+}
+
+// QueryResult represents the result of an APL query.
+type QueryResult struct {
+	Tables []QueryTable `json:"tables"`
+	Status QueryStatus  `json:"status"`
+}
+
+// QueryTable represents a table in query results.
+type QueryTable struct {
+	Name    string       `json:"name"`
+	Fields  []QueryField `json:"fields"`
+	Columns [][]any      `json:"columns"`
+}
+
+// QueryField represents a field in query results.
+type QueryField struct {
+	Name        string       `json:"name"`
+	Type        string       `json:"type"`
+	Aggregation *Aggregation `json:"aggregation,omitempty"`
+}
+
+// Aggregation represents an aggregation in query results.
+type Aggregation struct {
+	Op     string   `json:"op"`
+	Fields []string `json:"fields,omitempty"`
+	Args   []any    `json:"args,omitempty"`
+}
+
+// QueryStatus represents the status of a query.
+type QueryStatus struct {
+	ElapsedTime    int64 `json:"elapsedTime"`
+	BlocksExamined int64 `json:"blocksExamined"`
+	RowsExamined   int64 `json:"rowsExamined"`
+	RowsMatched    int64 `json:"rowsMatched"`
+}
+
+// API defines the interface for Axiom API operations.
 type API interface {
-	ListDatasets(ctx context.Context) ([]*axiom.Dataset, error)
-	QueryAPL(ctx context.Context, apl string) (*query.Result, error)
+	ListDatasets(ctx context.Context) ([]Dataset, error)
+	ListFields(ctx context.Context, datasetID string) ([]Field, error)
+	QueryAPL(ctx context.Context, apl string) (*QueryResult, error)
+}
+
+// Client is an HTTP client for the Axiom API.
+type Client struct {
+	httpClient *http.Client
+	baseURL    string
+	token      string
+	orgID      string
 }
 
 type axiomConfig struct {
@@ -54,16 +116,24 @@ func loadAxiomTOML() (url, token, orgID string) {
 	return deployment.URL, deployment.Token, deployment.OrgID
 }
 
-func New(options ...axiom.Option) (*Client, error) {
-	raw, err := axiom.NewClient(options...)
-	if err != nil {
-		return nil, err
+// New creates a new Axiom API client.
+func New(baseURL, token, orgID string) (*Client, error) {
+	if baseURL == "" {
+		baseURL = "https://api.axiom.co"
 	}
-	return &Client{raw: raw}, nil
+	if token == "" {
+		return nil, fmt.Errorf("axiom token is required")
+	}
+	return &Client{
+		httpClient: &http.Client{Timeout: 60 * time.Second},
+		baseURL:    baseURL,
+		token:      token,
+		orgID:      orgID,
+	}, nil
 }
 
+// NewWithEnvOverrides creates a client with configuration from flags, env, and ~/.axiom.toml.
 func NewWithEnvOverrides(url, token, orgID string) (*Client, error) {
-	// Priority: flags > env vars > ~/.axiom.toml
 	var (
 		envURL   = os.Getenv("AXIOM_URL")
 		envToken = os.Getenv("AXIOM_TOKEN")
@@ -93,24 +163,95 @@ func NewWithEnvOverrides(url, token, orgID string) (*Client, error) {
 		orgID = tomlOrg
 	}
 
-	options := []axiom.Option{axiom.SetNoEnv()}
-	if url != "" {
-		options = append(options, axiom.SetURL(url))
-	}
-	if token != "" {
-		options = append(options, axiom.SetToken(token))
-	}
-	if orgID != "" {
-		options = append(options, axiom.SetOrganizationID(orgID))
-	}
-
-	return New(options...)
+	return New(url, token, orgID)
 }
 
-func (c *Client) ListDatasets(ctx context.Context) ([]*axiom.Dataset, error) {
-	return c.raw.Datasets.List(ctx)
+func (c *Client) doRequest(ctx context.Context, method, path string, body io.Reader) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, body)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+c.token)
+	req.Header.Set("Content-Type", "application/json")
+	if c.orgID != "" {
+		req.Header.Set("X-Axiom-Org-ID", c.orgID)
+	}
+	return c.httpClient.Do(req)
 }
 
-func (c *Client) QueryAPL(ctx context.Context, apl string) (*query.Result, error) {
-	return c.raw.Datasets.Query(ctx, apl)
+type apiError struct {
+	Code    int    `json:"code"`
+	Message string `json:"message"`
+}
+
+func (c *Client) checkResponse(resp *http.Response) error {
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		return nil
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	var apiErr apiError
+	if json.Unmarshal(body, &apiErr) == nil && apiErr.Message != "" {
+		return fmt.Errorf("axiom API error %d: %s", apiErr.Code, apiErr.Message)
+	}
+	return fmt.Errorf("axiom API error: status %d", resp.StatusCode)
+}
+
+// ListDatasets returns all datasets.
+func (c *Client) ListDatasets(ctx context.Context) ([]Dataset, error) {
+	resp, err := c.doRequest(ctx, http.MethodGet, "/v2/datasets", nil)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if err := c.checkResponse(resp); err != nil {
+		return nil, err
+	}
+	var datasets []Dataset
+	if err := json.NewDecoder(resp.Body).Decode(&datasets); err != nil {
+		return nil, err
+	}
+	return datasets, nil
+}
+
+// ListFields returns all fields for a dataset.
+func (c *Client) ListFields(ctx context.Context, datasetID string) ([]Field, error) {
+	resp, err := c.doRequest(ctx, http.MethodGet, "/v2/datasets/"+datasetID+"/fields", nil)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if err := c.checkResponse(resp); err != nil {
+		return nil, err
+	}
+	var fields []Field
+	if err := json.NewDecoder(resp.Body).Decode(&fields); err != nil {
+		return nil, err
+	}
+	return fields, nil
+}
+
+type queryRequest struct {
+	APL string `json:"apl"`
+}
+
+// QueryAPL executes an APL query and returns the result.
+func (c *Client) QueryAPL(ctx context.Context, apl string) (*QueryResult, error) {
+	reqBody, err := json.Marshal(queryRequest{APL: apl})
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.doRequest(ctx, http.MethodPost, "/v2/datasets/_apl?format=tabular", bytes.NewReader(reqBody))
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if err := c.checkResponse(resp); err != nil {
+		return nil, err
+	}
+	var result QueryResult
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, err
+	}
+	return &result, nil
 }

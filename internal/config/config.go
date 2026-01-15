@@ -13,6 +13,7 @@ type Config struct {
 	MaxLimit         int
 	MaxRange         time.Duration
 	CacheTTL         time.Duration
+	MetadataTTL      time.Duration
 	MaxCacheEntries  int
 	MaxCacheBytes    int
 	MaxInMemoryBytes int
@@ -49,7 +50,8 @@ func Default() Config {
 		DefaultLimit:     10000,
 		MaxLimit:         100000,
 		MaxRange:         24 * time.Hour,
-		CacheTTL:         60 * time.Second,
+		CacheTTL:         10 * time.Minute,
+		MetadataTTL:      10 * time.Minute,
 		MaxCacheEntries:  256,
 		MaxCacheBytes:    50 << 20,
 		MaxInMemoryBytes: 8 << 20,

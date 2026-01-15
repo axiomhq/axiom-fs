@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 
-	"github.com/axiomhq/axiom-go/axiom"
+	"github.com/axiomhq/axiom-fs/internal/axiomclient"
 )
 
 type Preset struct {
@@ -143,7 +143,7 @@ func DefaultCatalog() Catalog {
 	}
 }
 
-func PresetsForDataset(dataset *axiom.Dataset) []Preset {
+func PresetsForDataset(dataset *axiomclient.Dataset) []Preset {
 	catalog := DefaultCatalog()
 	presets := append([]Preset{}, catalog.Core...)
 
