@@ -54,7 +54,16 @@ func (q *QueryPathResultFile) execute(ctx context.Context) (query.ResultData, er
 }
 
 func (q *QueryPathResultFile) Stat(ctx context.Context) (os.FileInfo, error) {
-	return DynamicFileInfo("result.ndjson"), nil
+	result, err := q.execute(ctx)
+	if err != nil {
+		return nil, err
+	}
+	compiled, _ := compilePath(q.dataset, q.segments, q.root.Config())
+	name := "result.ndjson"
+	if compiled.Format != "" {
+		name = "result." + compiled.Format
+	}
+	return FileInfo(name, result.Size), nil
 }
 
 func (q *QueryPathResultFile) Open(ctx context.Context, flags int) (billy.File, error) {

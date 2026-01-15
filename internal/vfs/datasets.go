@@ -275,7 +275,7 @@ func (f *FieldQueryFile) buildFieldQuery(ctx context.Context) ([]byte, error) {
 	var expr string
 	switch f.kind {
 	case "top":
-		expr = "summarize topk(" + f.field + ", 10)"
+		expr = "summarize count() by " + f.field + "\n| order by count_ desc\n| take 10"
 	case "histogram":
 		expr = "summarize histogram(" + f.field + ", 100)"
 	default:

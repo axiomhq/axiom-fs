@@ -375,8 +375,8 @@ func TestFieldsDir(t *testing.T) {
 		}
 		topFile, _ := fieldDir.(Dir).Lookup(ctx, "top.csv")
 		_ = readFile(t, topFile.(File))
-		if !strings.Contains(exec.lastAPL(), "topk(status") {
-			t.Errorf("APL missing topk: %s", exec.lastAPL())
+		if !strings.Contains(exec.lastAPL(), "count() by status") {
+			t.Errorf("APL missing count() by status: %s", exec.lastAPL())
 		}
 	})
 

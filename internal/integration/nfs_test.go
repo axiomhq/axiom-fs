@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -23,15 +24,16 @@ import (
 // TestNFS_EndToEnd tests the full NFS mount and operations.
 //
 // Requirements:
-//   - Root access (run with: sudo -E go test ...)
 //   - AXIOM_FS_TEST_DATASET must be set
+//   - On Linux: root access (run with: sudo -E go test ...)
+//   - On macOS: no root required
 //
 // Example:
 //
-//	sudo -E AXIOM_FS_TEST_DATASET=http-logs go test -v ./internal/integration -run TestNFS_EndToEnd
+//	AXIOM_FS_TEST_DATASET=http-logs go test -v ./internal/integration -run TestNFS_EndToEnd
 func TestNFS_EndToEnd(t *testing.T) {
-	if os.Getuid() != 0 {
-		t.Skip("skipping: requires root (run with sudo -E)")
+	if os.Getuid() != 0 && !isDarwin() {
+		t.Skip("skipping: requires root on Linux (run with sudo -E)")
 	}
 	skipIfNotConfigured(t)
 
@@ -167,4 +169,8 @@ func TestNFS_EndToEnd(t *testing.T) {
 			t.Error("schema.csv is empty")
 		}
 	})
+}
+
+func isDarwin() bool {
+	return os.Getenv("GOOS") == "darwin" || (os.Getenv("GOOS") == "" && runtime.GOOS == "darwin")
 }

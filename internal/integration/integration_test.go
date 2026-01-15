@@ -292,6 +292,48 @@ func TestIntegration_FileSizeAccuracy(t *testing.T) {
 	}
 }
 
+func TestIntegration_FieldTopCSV(t *testing.T) {
+	skipIfNotConfigured(t)
+	fs := newTestFS(t)
+
+	// Find a field to test top values on
+	testField := os.Getenv("AXIOM_FS_TEST_FIELD")
+	if testField == "" {
+		testField = "status" // common field name
+	}
+
+	topPath := "/" + testDataset + "/fields/" + testField + "/top.csv"
+
+	f, err := fs.Open(topPath)
+	if err != nil {
+		t.Fatalf("Open top.csv: %v", err)
+	}
+	defer f.Close()
+
+	data, err := io.ReadAll(f)
+	if err != nil {
+		t.Fatalf("ReadAll: %v", err)
+	}
+
+	content := string(data)
+	if len(data) == 0 {
+		t.Fatal("top.csv is empty")
+	}
+
+	// Should have the field name and count_ columns
+	if !strings.Contains(content, testField) {
+		t.Errorf("top.csv should contain field %q in header, got: %s", testField, content[:min(200, len(content))])
+	}
+	if !strings.Contains(content, "count_") {
+		t.Errorf("top.csv should contain count_ column, got: %s", content[:min(200, len(content))])
+	}
+
+	// Should NOT contain map literals from topk()
+	if strings.Contains(content, "map[") {
+		t.Errorf("top.csv should not contain Go map literals, got: %s", content)
+	}
+}
+
 func TestIntegration_FieldHistogramError(t *testing.T) {
 	skipIfNotConfigured(t)
 	fs := newTestFS(t)
