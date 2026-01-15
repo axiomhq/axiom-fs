@@ -18,8 +18,14 @@ struct SettingsView: View {
                 .tabItem {
                     Label("Account", systemImage: "person.crop.circle")
                 }
+            
+            NFSSettingsView()
+                .environmentObject(appState)
+                .tabItem {
+                    Label("NFS", systemImage: "externaldrive.connected.to.line.below")
+                }
         }
-        .frame(width: 450, height: 250)
+        .frame(width: 450, height: 280)
         .onAppear {
             launchAtLogin = SMAppService.mainApp.status == .enabled
         }
@@ -63,6 +69,10 @@ struct AccountSettingsView: View {
             
             TextField("Organization ID (optional)", text: $appState.axiomOrgID)
             
+            Text("Token is read from AXIOM_TOKEN environment variable or ~/.axiom.toml")
+                .font(.caption)
+                .foregroundColor(.secondary)
+            
             HStack {
                 Spacer()
                 Button("Save") {
@@ -75,8 +85,82 @@ struct AccountSettingsView: View {
     }
     
     private func saveToken() {
-        // Save to Keychain
-        // KeychainManager.shared.saveToken(token, for: appState.axiomURL)
+        // TODO: Save to Keychain via KeychainManager
+        // For now, users should set AXIOM_TOKEN or use ~/.axiom.toml
+    }
+}
+
+struct NFSSettingsView: View {
+    @EnvironmentObject var appState: AppState
+    
+    var body: some View {
+        Form {
+            Section {
+                HStack {
+                    Text("Binary Location")
+                    Spacer()
+                    if let path = appState.nfsManager.binaryPath {
+                        Text(path)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    } else {
+                        Text("Not found")
+                            .font(.caption)
+                            .foregroundColor(.red)
+                    }
+                }
+                
+                HStack {
+                    Text("Mount Point")
+                    Spacer()
+                    Text("~/Axiom")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                
+                HStack {
+                    Text("Server Address")
+                    Spacer()
+                    Text("127.0.0.1:12049")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+            
+            Section {
+                if !appState.hasBinary {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Install axiom-fs")
+                            .font(.headline)
+                        
+                        Text("The NFS server binary was not found. Install it with:")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        
+                        Text("go install github.com/axiomhq/axiom-fs/cmd/axiom-fs@latest")
+                            .font(.system(.caption, design: .monospaced))
+                            .textSelection(.enabled)
+                            .padding(8)
+                            .background(Color.secondary.opacity(0.1))
+                            .cornerRadius(4)
+                    }
+                }
+            }
+            
+            if !appState.nfsManager.serverOutput.isEmpty {
+                Section("Server Output") {
+                    ScrollView {
+                        Text(appState.nfsManager.serverOutput)
+                            .font(.system(.caption, design: .monospaced))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .frame(height: 80)
+                }
+            }
+        }
+        .padding()
     }
 }
 

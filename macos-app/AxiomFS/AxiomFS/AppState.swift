@@ -1,23 +1,34 @@
 import SwiftUI
-import FileProvider
 
 @MainActor
 class AppState: ObservableObject {
-    enum ConnectionStatus {
+    enum ConnectionStatus: Equatable {
         case disconnected
         case connecting
         case connected
         case error(String)
+        
+        static func == (lhs: ConnectionStatus, rhs: ConnectionStatus) -> Bool {
+            switch (lhs, rhs) {
+            case (.disconnected, .disconnected),
+                 (.connecting, .connecting),
+                 (.connected, .connected):
+                return true
+            case (.error(let a), .error(let b)):
+                return a == b
+            default:
+                return false
+            }
+        }
     }
     
     @Published var status: ConnectionStatus = .disconnected
     @Published var datasets: [String] = []
-    @Published var lastError: String?
     
     @AppStorage("axiomURL") var axiomURL: String = "https://api.axiom.co"
     @AppStorage("axiomOrgID") var axiomOrgID: String = ""
     
-    private var domain: NSFileProviderDomain?
+    let nfsManager = NFSProcessManager()
     
     var statusIcon: String {
         switch status {
@@ -31,8 +42,8 @@ class AppState: ObservableObject {
     var statusText: String {
         switch status {
         case .disconnected: return "Disconnected"
-        case .connecting: return "Connecting..."
-        case .connected: return "Connected"
+        case .connecting: return "Starting NFS server..."
+        case .connected: return "Connected (NFS)"
         case .error(let msg): return "Error: \(msg)"
         }
     }
@@ -42,20 +53,35 @@ class AppState: ObservableObject {
         return false
     }
     
+    var hasBinary: Bool {
+        nfsManager.binaryPath != nil
+    }
+    
     init() {
-        // Auto-connect on launch if credentials exist
+        // Sync NFS manager state changes to our status
         Task {
-            await autoConnect()
+            for await _ in nfsManager.$state.values {
+                await MainActor.run {
+                    self.syncStatus()
+                }
+            }
         }
     }
     
-    func autoConnect() async {
-        // Check if we have credentials in Keychain
-        // For now, try to load from ~/.axiom.toml
-        do {
-            try await connect()
-        } catch {
-            // Silent fail on auto-connect
+    private func syncStatus() {
+        switch nfsManager.state {
+        case .stopped:
+            if case .connecting = status {
+                // Don't override if we just started
+            } else {
+                status = .disconnected
+            }
+        case .starting:
+            status = .connecting
+        case .running:
+            status = .connected
+        case .error(let msg):
+            status = .error(msg)
         }
     }
     
@@ -63,18 +89,7 @@ class AppState: ObservableObject {
         status = .connecting
         
         do {
-            // Register File Provider domain
-            let domainID = NSFileProviderDomainIdentifier(rawValue: "com.axiom.fs")
-            let newDomain = NSFileProviderDomain(identifier: domainID, displayName: "Axiom")
-            
-            // Remove existing domain first
-            if let existing = try? await NSFileProviderManager.domains().first(where: { $0.identifier == domainID }) {
-                try await NSFileProviderManager.remove(existing)
-            }
-            
-            try await NSFileProviderManager.add(newDomain)
-            self.domain = newDomain
-            
+            try await nfsManager.start()
             status = .connected
         } catch {
             status = .error(error.localizedDescription)
@@ -83,22 +98,11 @@ class AppState: ObservableObject {
     }
     
     func disconnect() async {
-        if let domain {
-            try? await NSFileProviderManager.remove(domain)
-            self.domain = nil
-        }
+        await nfsManager.stop()
         status = .disconnected
     }
     
     func openInFinder() {
-        guard let domain else { return }
-        
-        if let manager = NSFileProviderManager(for: domain) {
-            manager.getUserVisibleURL(for: .rootContainer) { url, error in
-                if let url {
-                    NSWorkspace.shared.open(url)
-                }
-            }
-        }
+        nfsManager.openInFinder()
     }
 }

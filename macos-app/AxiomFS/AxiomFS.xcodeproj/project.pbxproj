@@ -12,6 +12,8 @@
 		A1000002 /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000002; };
 		A1000003 /* MenuBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000003; };
 		A1000004 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000004; };
+		A1000005 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A2000007; };
+		A1000006 /* NFSProcessManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000008; };
 		
 		/* AxiomProvider Extension */
 		B1000001 /* FileProviderExtension.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000001; };
@@ -54,6 +56,8 @@
 		A2000004 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		A2000005 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		A2000006 /* AxiomFS.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = AxiomFS.entitlements; sourceTree = "<group>"; };
+		A2000007 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		A2000008 /* NFSProcessManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NFSProcessManager.swift; sourceTree = "<group>"; };
 		A3000001 /* AxiomFS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AxiomFS.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		
 		/* AxiomProvider Extension */
@@ -97,10 +101,12 @@
 			children = (
 				A2000001 /* AxiomFSApp.swift */,
 				A2000002 /* AppState.swift */,
+				A2000008 /* NFSProcessManager.swift */,
 				A2000003 /* MenuBarView.swift */,
 				A2000004 /* SettingsView.swift */,
 				A2000005 /* Info.plist */,
 				A2000006 /* AxiomFS.entitlements */,
+				A2000007 /* Assets.xcassets */,
 			);
 			path = AxiomFS;
 			sourceTree = "<group>";
@@ -207,6 +213,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A1000005 /* Assets.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -226,6 +233,7 @@
 			files = (
 				A1000001 /* AxiomFSApp.swift in Sources */,
 				A1000002 /* AppState.swift in Sources */,
+				A1000006 /* NFSProcessManager.swift in Sources */,
 				A1000003 /* MenuBarView.swift in Sources */,
 				A1000004 /* SettingsView.swift in Sources */,
 			);
