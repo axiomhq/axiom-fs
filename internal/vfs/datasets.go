@@ -148,20 +148,28 @@ type DatasetSchemaFile struct {
 	format  string
 }
 
-func (d *DatasetSchemaFile) Stat(ctx context.Context) (os.FileInfo, error) {
-	return FileInfo("schema."+d.format, 0), nil
-}
-
-func (d *DatasetSchemaFile) Open(ctx context.Context, flags int) (billy.File, error) {
+func (d *DatasetSchemaFile) buildSchema(ctx context.Context) ([]byte, error) {
 	apl := fmt.Sprintf("['%s']\n| where _time between (ago(%s) .. now())\n| getschema",
 		d.dataset.Name,
 		d.root.Config().DefaultRange,
 	)
-	data, err := d.root.Executor().ExecuteAPL(ctx, apl, d.format, query.ExecOptions{
+	return d.root.Executor().ExecuteAPL(ctx, apl, d.format, query.ExecOptions{
 		UseCache:        true,
 		EnsureTimeRange: false,
 		EnsureLimit:     false,
 	})
+}
+
+func (d *DatasetSchemaFile) Stat(ctx context.Context) (os.FileInfo, error) {
+	data, err := d.buildSchema(ctx)
+	if err != nil {
+		return DynamicFileInfo("schema." + d.format), nil
+	}
+	return FileInfo("schema."+d.format, int64(len(data))), nil
+}
+
+func (d *DatasetSchemaFile) Open(ctx context.Context, flags int) (billy.File, error) {
+	data, err := d.buildSchema(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -173,22 +181,30 @@ type DatasetSampleFile struct {
 	dataset *axiom.Dataset
 }
 
-func (d *DatasetSampleFile) Stat(ctx context.Context) (os.FileInfo, error) {
-	return FileInfo("sample.ndjson", 0), nil
-}
-
-func (d *DatasetSampleFile) Open(ctx context.Context, flags int) (billy.File, error) {
+func (d *DatasetSampleFile) buildSample(ctx context.Context) ([]byte, error) {
 	cfg := d.root.Config()
 	apl := fmt.Sprintf("['%s']\n| where _time between (ago(%s) .. now())\n| take %d",
 		d.dataset.Name,
 		cfg.DefaultRange,
 		cfg.SampleLimit,
 	)
-	data, err := d.root.Executor().ExecuteAPL(ctx, apl, "ndjson", query.ExecOptions{
+	return d.root.Executor().ExecuteAPL(ctx, apl, "ndjson", query.ExecOptions{
 		UseCache:        true,
 		EnsureTimeRange: false,
 		EnsureLimit:     false,
 	})
+}
+
+func (d *DatasetSampleFile) Stat(ctx context.Context) (os.FileInfo, error) {
+	data, err := d.buildSample(ctx)
+	if err != nil {
+		return DynamicFileInfo("sample.ndjson"), nil
+	}
+	return FileInfo("sample.ndjson", int64(len(data))), nil
+}
+
+func (d *DatasetSampleFile) Open(ctx context.Context, flags int) (billy.File, error) {
+	data, err := d.buildSample(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -202,11 +218,7 @@ type FieldQueryFile struct {
 	kind    string
 }
 
-func (f *FieldQueryFile) Stat(ctx context.Context) (os.FileInfo, error) {
-	return FileInfo(f.kind+".csv", 0), nil
-}
-
-func (f *FieldQueryFile) Open(ctx context.Context, flags int) (billy.File, error) {
+func (f *FieldQueryFile) buildFieldQuery(ctx context.Context) ([]byte, error) {
 	var expr string
 	switch f.kind {
 	case "top":
@@ -221,11 +233,23 @@ func (f *FieldQueryFile) Open(ctx context.Context, flags int) (billy.File, error
 		f.root.Config().DefaultRange,
 		expr,
 	)
-	data, err := f.root.Executor().ExecuteAPL(ctx, apl, "csv", query.ExecOptions{
+	return f.root.Executor().ExecuteAPL(ctx, apl, "csv", query.ExecOptions{
 		UseCache:        true,
 		EnsureTimeRange: false,
 		EnsureLimit:     false,
 	})
+}
+
+func (f *FieldQueryFile) Stat(ctx context.Context) (os.FileInfo, error) {
+	data, err := f.buildFieldQuery(ctx)
+	if err != nil {
+		return DynamicFileInfo(f.kind + ".csv"), nil
+	}
+	return FileInfo(f.kind+".csv", int64(len(data))), nil
+}
+
+func (f *FieldQueryFile) Open(ctx context.Context, flags int) (billy.File, error) {
+	data, err := f.buildFieldQuery(ctx)
 	if err != nil {
 		return nil, err
 	}

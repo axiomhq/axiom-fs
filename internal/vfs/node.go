@@ -61,6 +61,19 @@ func FileInfo(name string, size int64) os.FileInfo {
 	}
 }
 
+// DynamicFileInfo returns a FileInfo with a reasonable placeholder size.
+// NFS requires a non-zero size to trigger reads for dynamically generated content.
+// We use a moderate size that's large enough for most results but won't cause
+// excessive read attempts.
+func DynamicFileInfo(name string) os.FileInfo {
+	return &virtualFileInfo{
+		name:    name,
+		size:    64 * 1024 * 1024, // 64MB placeholder
+		mode:    0o444,
+		modTime: time.Now(),
+	}
+}
+
 func WritableFileInfo(name string, size int64) os.FileInfo {
 	return &virtualFileInfo{
 		name:    name,

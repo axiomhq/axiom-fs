@@ -13,14 +13,16 @@ import (
 
 type bytesFile struct {
 	name   string
+	data   []byte
 	reader *bytes.Reader
 }
 
 func newBytesFile(data []byte) billy.File {
-	return &bytesFile{reader: bytes.NewReader(data)}
+	return &bytesFile{data: data, reader: bytes.NewReader(data)}
 }
 
 func (f *bytesFile) Name() string { return f.name }
+func (f *bytesFile) Size() int64  { return int64(len(f.data)) }
 
 func (f *bytesFile) Read(p []byte) (int, error) {
 	return f.reader.Read(p)

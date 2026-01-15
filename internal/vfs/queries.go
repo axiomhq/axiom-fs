@@ -110,20 +110,28 @@ type QueryResultFile struct {
 	format string
 }
 
+func (q *QueryResultFile) execute(ctx context.Context) (query.ResultData, error) {
+	apl := string(q.root.Store().Get(q.name))
+	if err := query.ValidateAPL(apl); err != nil {
+		return query.ResultData{}, err
+	}
+	return q.root.Executor().ExecuteAPLResult(ctx, apl, q.format, query.ExecOptions{
+		UseCache:        true,
+		EnsureTimeRange: false, // Raw APL queries run as-is
+		EnsureLimit:     false,
+	})
+}
+
 func (q *QueryResultFile) Stat(ctx context.Context) (os.FileInfo, error) {
-	return FileInfo("result."+q.format, 0), nil
+	result, err := q.execute(ctx)
+	if err != nil {
+		return DynamicFileInfo("result." + q.format), nil
+	}
+	return FileInfo("result."+q.format, result.Size), nil
 }
 
 func (q *QueryResultFile) Open(ctx context.Context, flags int) (billy.File, error) {
-	apl := string(q.root.Store().Get(q.name))
-	if err := query.ValidateAPL(apl); err != nil {
-		return nil, err
-	}
-	result, err := q.root.Executor().ExecuteAPLResult(ctx, apl, q.format, query.ExecOptions{
-		UseCache:        true,
-		EnsureTimeRange: true,
-		EnsureLimit:     true,
-	})
+	result, err := q.execute(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -135,22 +143,26 @@ type QueryErrorFile struct {
 	name string
 }
 
+func (q *QueryErrorFile) buildError(ctx context.Context) []byte {
+	apl := string(q.root.Store().Get(q.name))
+	if err := query.ValidateAPL(apl); err != nil {
+		return query.BuildErrorAPL(apl, err)
+	}
+	_, err := q.root.Executor().ExecuteAPL(ctx, apl, "ndjson", query.ExecOptions{
+		UseCache:        true,
+		EnsureTimeRange: false,
+		EnsureLimit:     false,
+	})
+	return query.BuildErrorAPL(apl, err)
+}
+
 func (q *QueryErrorFile) Stat(ctx context.Context) (os.FileInfo, error) {
-	return FileInfo("result.error", 0), nil
+	data := q.buildError(ctx)
+	return FileInfo("result.error", int64(len(data))), nil
 }
 
 func (q *QueryErrorFile) Open(ctx context.Context, flags int) (billy.File, error) {
-	apl := string(q.root.Store().Get(q.name))
-	if err := query.ValidateAPL(apl); err != nil {
-		data := query.BuildErrorAPL(apl, err)
-		return newBytesFile(data), nil
-	}
-	_, err := q.root.Executor().ExecuteAPL(ctx, apl, "ndjson", query.ExecOptions{
-		UseCache:        false,
-		EnsureTimeRange: true,
-		EnsureLimit:     true,
-	})
-	data := query.BuildErrorAPL(apl, err)
+	data := q.buildError(ctx)
 	return newBytesFile(data), nil
 }
 
@@ -159,24 +171,32 @@ type QuerySchemaFile struct {
 	name string
 }
 
-func (q *QuerySchemaFile) Stat(ctx context.Context) (os.FileInfo, error) {
-	return FileInfo("schema.csv", 0), nil
-}
-
-func (q *QuerySchemaFile) Open(ctx context.Context, flags int) (billy.File, error) {
+func (q *QuerySchemaFile) buildSchema(ctx context.Context) ([]byte, error) {
 	apl := string(q.root.Store().Get(q.name))
 	if err := query.ValidateAPL(apl); err != nil {
 		return nil, err
 	}
 	result, err := q.root.Executor().QueryAPL(ctx, apl, query.ExecOptions{
-		UseCache:        false,
-		EnsureTimeRange: true,
-		EnsureLimit:     true,
+		UseCache:        true,
+		EnsureTimeRange: false,
+		EnsureLimit:     false,
 	})
 	if err != nil {
 		return nil, err
 	}
-	data, err := schemaCSV(result)
+	return schemaCSV(result)
+}
+
+func (q *QuerySchemaFile) Stat(ctx context.Context) (os.FileInfo, error) {
+	data, err := q.buildSchema(ctx)
+	if err != nil {
+		return DynamicFileInfo("schema.csv"), nil
+	}
+	return FileInfo("schema.csv", int64(len(data))), nil
+}
+
+func (q *QuerySchemaFile) Open(ctx context.Context, flags int) (billy.File, error) {
+	data, err := q.buildSchema(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -188,19 +208,15 @@ type QueryStatsFile struct {
 	name string
 }
 
-func (q *QueryStatsFile) Stat(ctx context.Context) (os.FileInfo, error) {
-	return FileInfo("stats.json", 0), nil
-}
-
-func (q *QueryStatsFile) Open(ctx context.Context, flags int) (billy.File, error) {
+func (q *QueryStatsFile) buildStats(ctx context.Context) ([]byte, error) {
 	apl := string(q.root.Store().Get(q.name))
 	if err := query.ValidateAPL(apl); err != nil {
 		return nil, err
 	}
 	result, err := q.root.Executor().QueryAPL(ctx, apl, query.ExecOptions{
-		UseCache:        false,
-		EnsureTimeRange: true,
-		EnsureLimit:     true,
+		UseCache:        true,
+		EnsureTimeRange: false,
+		EnsureLimit:     false,
 	})
 	if err != nil {
 		return nil, err
@@ -213,5 +229,21 @@ func (q *QueryStatsFile) Open(ctx context.Context, flags int) (billy.File, error
 	if err != nil {
 		return nil, err
 	}
-	return newBytesFile(append(data, '\n')), nil
+	return append(data, '\n'), nil
+}
+
+func (q *QueryStatsFile) Stat(ctx context.Context) (os.FileInfo, error) {
+	data, err := q.buildStats(ctx)
+	if err != nil {
+		return DynamicFileInfo("stats.json"), nil
+	}
+	return FileInfo("stats.json", int64(len(data))), nil
+}
+
+func (q *QueryStatsFile) Open(ctx context.Context, flags int) (billy.File, error) {
+	data, err := q.buildStats(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return newBytesFile(data), nil
 }
