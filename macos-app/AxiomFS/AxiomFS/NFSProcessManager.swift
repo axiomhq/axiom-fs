@@ -81,27 +81,26 @@ class NFSProcessManager: ObservableObject {
         proc.standardError = errPipe
         self.errorPipe = errPipe
         
-        outPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
+        outPipe.fileHandleForReading.readabilityHandler = { @Sendable [weak self] handle in
             let data = handle.availableData
-            if !data.isEmpty, let str = String(data: data, encoding: .utf8) {
-                Task { @MainActor in
-                    self?.serverOutput += str
-                }
+            guard !data.isEmpty, let str = String(data: data, encoding: .utf8) else { return }
+            Task { @MainActor [weak self] in
+                self?.serverOutput += str
             }
         }
         
-        errPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
+        errPipe.fileHandleForReading.readabilityHandler = { @Sendable [weak self] handle in
             let data = handle.availableData
-            if !data.isEmpty, let str = String(data: data, encoding: .utf8) {
-                Task { @MainActor in
-                    self?.serverOutput += str
-                }
+            guard !data.isEmpty, let str = String(data: data, encoding: .utf8) else { return }
+            Task { @MainActor [weak self] in
+                self?.serverOutput += str
             }
         }
         
-        proc.terminationHandler = { [weak self] proc in
-            Task { @MainActor in
-                self?.handleTermination(exitCode: proc.terminationStatus)
+        proc.terminationHandler = { @Sendable [weak self] proc in
+            let exitCode = proc.terminationStatus
+            Task { @MainActor [weak self] in
+                self?.handleTermination(exitCode: exitCode)
             }
         }
         
