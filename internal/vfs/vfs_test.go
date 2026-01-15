@@ -345,9 +345,9 @@ func TestFieldsDir(t *testing.T) {
 		datasets: []axiomclient.Dataset{{Name: "logs"}},
 		fields: map[string][]axiomclient.Field{
 			"logs": {
-				{Name: "duration", Type: "number"},
+				{Name: "duration", Type: "integer"},
 				{Name: "service", Type: "string"},
-				{Name: "status", Type: "number"},
+				{Name: "status", Type: "integer"},
 			},
 		},
 	}
@@ -391,6 +391,67 @@ func TestFieldsDir(t *testing.T) {
 			t.Errorf("APL missing histogram: %s", exec.lastAPL())
 		}
 	})
+}
+
+func TestFieldDir_HistogramVisibility(t *testing.T) {
+	tests := []struct {
+		fieldType     string
+		wantHistogram bool
+	}{
+		{"integer", true},
+		{"float", true},
+		{"datetime", true},
+		{"timespan", true},
+		{"string", false},
+		{"boolean", false},
+		{"array", false},
+		{"object", false},
+		{"", false}, // unknown type
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.fieldType, func(t *testing.T) {
+			cfg := config.Default()
+			cfg.CacheDir = t.TempDir()
+			client := &mockClient{
+				datasets: []axiomclient.Dataset{{Name: "logs"}},
+				fields: map[string][]axiomclient.Field{
+					"logs": {{Name: "testfield", Type: tt.fieldType}},
+				},
+			}
+			exec := &mockExecutor{data: []byte("data")}
+			root := NewRoot(cfg, client, exec)
+			ctx := t.Context()
+
+			dataset, _ := root.Lookup(ctx, "logs")
+			fields, _ := dataset.(Dir).Lookup(ctx, "fields")
+			fieldDir, err := fields.(Dir).Lookup(ctx, "testfield")
+			if err != nil {
+				t.Fatalf("Lookup testfield: %v", err)
+			}
+
+			// Check ReadDir
+			entries, _ := fieldDir.(Dir).ReadDir(ctx)
+			hasHistogram := false
+			for _, e := range entries {
+				if e.Name() == "histogram.csv" {
+					hasHistogram = true
+				}
+			}
+			if hasHistogram != tt.wantHistogram {
+				t.Errorf("ReadDir: hasHistogram=%v, want %v", hasHistogram, tt.wantHistogram)
+			}
+
+			// Check Lookup
+			_, lookupErr := fieldDir.(Dir).Lookup(ctx, "histogram.csv")
+			if tt.wantHistogram && lookupErr != nil {
+				t.Errorf("Lookup histogram.csv should succeed for %s, got: %v", tt.fieldType, lookupErr)
+			}
+			if !tt.wantHistogram && lookupErr == nil {
+				t.Errorf("Lookup histogram.csv should fail for %s", tt.fieldType)
+			}
+		})
+	}
 }
 
 func TestPresets(t *testing.T) {

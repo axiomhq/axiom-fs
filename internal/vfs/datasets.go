@@ -129,29 +129,40 @@ func (f *FieldsDir) ReadDir(ctx context.Context) ([]os.FileInfo, error) {
 func (f *FieldsDir) Lookup(ctx context.Context, name string) (Node, error) {
 	field, found, err := f.root.fields().Lookup(ctx, f.root.Client(), f.dataset.Name, name)
 	if err != nil {
-		return &FieldDir{root: f.root, dataset: f.dataset, field: name}, nil
+		return &FieldDir{root: f.root, dataset: f.dataset, field: name, fieldType: ""}, nil
 	}
 	if !found {
 		return nil, os.ErrNotExist
 	}
-	return &FieldDir{root: f.root, dataset: f.dataset, field: field.Name}, nil
+	return &FieldDir{root: f.root, dataset: f.dataset, field: field.Name, fieldType: field.Type}, nil
 }
 
 type FieldDir struct {
-	root    *Root
-	dataset *axiomclient.Dataset
-	field   string
+	root      *Root
+	dataset   *axiomclient.Dataset
+	field     string
+	fieldType string
 }
 
 func (f *FieldDir) Stat(ctx context.Context) (os.FileInfo, error) {
 	return DirInfo(f.field), nil
 }
 
+func (f *FieldDir) supportsHistogram() bool {
+	switch f.fieldType {
+	case "integer", "float", "datetime", "timespan":
+		return true
+	default:
+		return false
+	}
+}
+
 func (f *FieldDir) ReadDir(ctx context.Context) ([]os.FileInfo, error) {
-	return []os.FileInfo{
-		FileInfo("top.csv", 0),
-		FileInfo("histogram.csv", 0),
-	}, nil
+	entries := []os.FileInfo{FileInfo("top.csv", 0)}
+	if f.supportsHistogram() {
+		entries = append(entries, FileInfo("histogram.csv", 0))
+	}
+	return entries, nil
 }
 
 func (f *FieldDir) Lookup(ctx context.Context, name string) (Node, error) {
@@ -159,6 +170,9 @@ func (f *FieldDir) Lookup(ctx context.Context, name string) (Node, error) {
 	case "top.csv":
 		return &FieldQueryFile{root: f.root, dataset: f.dataset, field: f.field, kind: "top"}, nil
 	case "histogram.csv":
+		if !f.supportsHistogram() {
+			return nil, os.ErrNotExist
+		}
 		return &FieldQueryFile{root: f.root, dataset: f.dataset, field: f.field, kind: "histogram"}, nil
 	default:
 		return nil, os.ErrNotExist

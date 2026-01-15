@@ -8,6 +8,10 @@ import (
 	"github.com/go-git/go-billy/v5"
 )
 
+// stableModTime is used for virtual files/dirs to prevent NFS client revalidation storms.
+// Using a stable time means clients won't think content changed on every GETATTR.
+var stableModTime = time.Now()
+
 type Node interface {
 	Stat(ctx context.Context) (os.FileInfo, error)
 }
@@ -47,7 +51,7 @@ func DirInfo(name string) os.FileInfo {
 	return &virtualFileInfo{
 		name:    name,
 		mode:    os.ModeDir | 0o555,
-		modTime: time.Now(),
+		modTime: stableModTime,
 		isDir:   true,
 	}
 }
@@ -57,7 +61,7 @@ func FileInfo(name string, size int64) os.FileInfo {
 		name:    name,
 		size:    size,
 		mode:    0o444,
-		modTime: time.Now(),
+		modTime: stableModTime,
 	}
 }
 
@@ -70,7 +74,7 @@ func DynamicFileInfo(name string) os.FileInfo {
 		name:    name,
 		size:    64 * 1024 * 1024, // 64MB placeholder
 		mode:    0o444,
-		modTime: time.Now(),
+		modTime: stableModTime,
 	}
 }
 

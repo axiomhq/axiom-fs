@@ -60,6 +60,7 @@ func newTempFile(file *os.File, size int64) billy.File {
 }
 
 func (f *tempFile) Name() string { return f.file.Name() }
+func (f *tempFile) Size() int64  { return f.size }
 
 func (f *tempFile) Read(p []byte) (int, error) {
 	return f.file.Read(p)
@@ -102,6 +103,7 @@ func newAPLFile(s *store.QueryStore, name string) billy.File {
 }
 
 func (f *aplFile) Name() string { return "apl" }
+func (f *aplFile) Size() int64  { return int64(len(f.store.Get(f.name))) }
 
 func (f *aplFile) Read(p []byte) (int, error) {
 	data := f.store.Get(f.name)

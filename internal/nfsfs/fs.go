@@ -145,6 +145,9 @@ func (f *FS) Stat(filename string) (os.FileInfo, error) {
 	if cachedSize, ok := f.getCachedSize(filename); ok {
 		return &sizedFileInfo{FileInfo: info, size: cachedSize}, nil
 	}
+	// Dynamic files return a placeholder size here. The forked go-nfs
+	// will use the file's Size() method after Open to get the real size
+	// and include it in post-op attrs, updating the client's cache.
 	return info, nil
 }
 

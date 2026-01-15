@@ -18,3 +18,5 @@ require (
 	github.com/willscott/go-nfs-client v0.0.0-20240104095149-b44639837b00 // indirect
 	golang.org/x/sys v0.39.0 // indirect
 )
+
+replace github.com/willscott/go-nfs => github.com/tsenart/go-nfs v0.0.4-0.20260115144807-ef5168416b30
