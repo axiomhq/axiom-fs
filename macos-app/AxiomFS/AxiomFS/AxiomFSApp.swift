@@ -9,11 +9,8 @@ struct AxiomFSApp: App {
             MenuBarView()
                 .environmentObject(appState)
         } label: {
-            Label {
-                Text("Axiom")
-            } icon: {
-                Image(systemName: appState.statusIcon)
-            }
+            Image("MenuBarIcon")
+                .renderingMode(.template)
         }
         .menuBarExtraStyle(.window)
         
