@@ -6,6 +6,7 @@ import (
 	"os"
 	"path"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -15,8 +16,27 @@ import (
 )
 
 type FS struct {
-	root     *vfs.Root
-	rootPath string
+	root      *vfs.Root
+	rootPath  string
+	sizeCache sync.Map // map[string]int64 - caches actual file sizes after Open
+}
+
+type sizedFileInfo struct {
+	os.FileInfo
+	size int64
+}
+
+func (s *sizedFileInfo) Size() int64 { return s.size }
+
+func (f *FS) cacheFileSize(filename string, size int64) {
+	f.sizeCache.Store(path.Clean(filename), size)
+}
+
+func (f *FS) getCachedSize(filename string) (int64, bool) {
+	if v, ok := f.sizeCache.Load(path.Clean(filename)); ok {
+		return v.(int64), true
+	}
+	return 0, false
 }
 
 func New(root *vfs.Root) *FS {
@@ -100,7 +120,15 @@ func (f *FS) OpenFile(filename string, flag int, perm fs.FileMode) (billy.File, 
 	if !ok {
 		return nil, syscall.EISDIR
 	}
-	return file.Open(ctx, flag)
+	opened, err := file.Open(ctx, flag)
+	if err != nil {
+		return nil, err
+	}
+	// Cache the opened file with its path so Stat can return accurate size
+	if sizer, ok := opened.(interface{ Size() int64 }); ok {
+		f.cacheFileSize(filename, sizer.Size())
+	}
+	return opened, nil
 }
 
 func (f *FS) Stat(filename string) (os.FileInfo, error) {
@@ -109,7 +137,15 @@ func (f *FS) Stat(filename string) (os.FileInfo, error) {
 		return nil, err
 	}
 	ctx := context.Background()
-	return node.Stat(ctx)
+	info, err := node.Stat(ctx)
+	if err != nil {
+		return nil, err
+	}
+	// Check if we have a cached actual size from a previous Open
+	if cachedSize, ok := f.getCachedSize(filename); ok {
+		return &sizedFileInfo{FileInfo: info, size: cachedSize}, nil
+	}
+	return info, nil
 }
 
 func (f *FS) Rename(oldpath, newpath string) error {
@@ -203,7 +239,7 @@ func (f *FS) Chtimes(name string, atime time.Time, mtime time.Time) error {
 }
 
 func (f *FS) Capabilities() billy.Capability {
-	return billy.ReadCapability | billy.SeekCapability
+	return billy.ReadCapability | billy.WriteCapability | billy.SeekCapability
 }
 
 type chrootFS struct {
@@ -353,7 +389,7 @@ func (c *chrootFS) Chtimes(name string, atime time.Time, mtime time.Time) error 
 }
 
 func (c *chrootFS) Capabilities() billy.Capability {
-	return billy.ReadCapability | billy.SeekCapability
+	return billy.ReadCapability | billy.WriteCapability | billy.SeekCapability
 }
 
 var _ billy.Filesystem = (*FS)(nil)

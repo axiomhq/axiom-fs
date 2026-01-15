@@ -416,8 +416,8 @@ func TestCapabilities(t *testing.T) {
 	if caps&billy.SeekCapability == 0 {
 		t.Error("missing SeekCapability")
 	}
-	if caps&billy.WriteCapability != 0 {
-		t.Error("should not have WriteCapability")
+	if caps&billy.WriteCapability == 0 {
+		t.Error("missing WriteCapability")
 	}
 }
 
